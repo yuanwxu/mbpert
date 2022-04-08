@@ -279,12 +279,19 @@ criterion = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(mbpert.parameters()) # Adam is much better than SGD in this case
 #optimizer = torch.optim.SGD(mbpert.parameters(), lr=1e-3)
 
+def reg_loss_interaction(A, reg_lambda = 0.001, order=2):
+  """ Regularization loss for the off-diag elements of interaction matrix A """
+  mask = ~torch.eye(A.shape[0], dtype=torch.bool)
+  return reg_lambda * torch.linalg.norm(A[mask], order)
+
 for i in range(400):
     # Forward pass
     x_pred = mbpert(x0)
 
     # Compute and print loss
     loss = criterion(x_pred, x_true)
+    loss = loss + reg_loss_interaction(mbpert.A)
+
     if i % 50 == 49:
         print(f"i={i}, loss={loss.item()}, x_pred={x_pred}") 
 
@@ -294,9 +301,9 @@ for i in range(400):
     optimizer.step()
 
 print(x_true)
-print(f'Estimated A: {mbpert.A}\nTrue: {A}\n')
-print(f'Estimated r:{mbpert.r}\nTrue: {r}\n')
-print(f'Estimated eps: {mbpert.eps}\nTrue: {eps}\n')
+print(f'Estimated A: {mbpert.A}\nTrue A: {A}\n')
+print(f'Estimated r:{mbpert.r}\nTrue r: {r}\n')
+print(f'Estimated eps: {mbpert.eps}\nTrue eps: {eps}\n')
 
 """**Test ODE solver**"""
 
