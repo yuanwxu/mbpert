@@ -10,8 +10,16 @@ Original file is located at
 import torch
 from torch import nn
 import numpy as np
+import math
+import itertools as it
 from scipy import linalg
 from scipy.integrate import solve_ivp
+from scipy import stats
+
+"""# Core implementation
+
+## ODE solver
+"""
 
 # These constants are definied the same as in `scipy.integrate.solve_ivp`
 SAFETY = 0.9
@@ -196,11 +204,12 @@ def glvp2(t, x, r, A, eps, p):
     out = x * (r[:, np.newaxis] + A @ x + eps[:, np.newaxis] * p)
     return np.ravel(out, order='F')
 
+"""## Custom PyTorch module """
+
 class MBPert(nn.Module):
-  def __init__(self, U):
+  def __init__(self, n_species):
     """U (torch.Tensor): perturbation matrix of shape (n_species, n_conds)"""
     super().__init__()
-    n_species = U.shape[0]
     self.r = nn.Parameter(torch.rand((n_species, )))
     self.eps = nn.Parameter(torch.randn(n_species, ))
 
@@ -212,13 +221,101 @@ class MBPert(nn.Module):
     # self.A[mask] = 1 / (2 * n_species**(0.5)) * torch.randn(n_species**2 - n_species, requires_grad=True)
     # self.A = nn.Parameter(self.A)
 
-    self.p = U
-    self.solver = RK45(glvp, [0,20], args=(self.r, self.A, self.eps, self.p))
-
-  def forward(self, x):
+  def forward(self, x, p):
+    self.solver = RK45(glvp, [0,20], args=(self.r, self.A, self.eps, p))
     return self.solver.solve(x)
 
-"""**Test on toy example**"""
+"""## Custom Dataset"""
+
+from torch.utils.data import Dataset
+
+# Custome Dataset to handle each data unit. Here each data unit corresponds to
+# one perturbation condition. Input initial and steady-states are vectors of 
+# length n_species * n_conds, of `n_conds` blocks with `n_species` elements per 
+# block.
+class MBPertDataset(Dataset):
+  def __init__(self, x0_file, xss_file, p_file, transform=None, target_transform=None):
+    self.x0 = np.loadtxt(x0_file, dtype=np.float32)
+    self.xss = np.loadtxt(xss_file, dtype=np.float32)
+
+    self.p = np.loadtxt(p_file, dtype=bool)
+    self.n_species = self.p.shape[0]
+    self.n_conds = self.p.shape[1]
+    
+    self.transform = transform
+    self.target_transform = target_transform
+
+    if len(self.x0) != len(self.xss) or len(self.x0) != self.p.size:
+      raise ValueError("Incorrect input data size.")
+
+  def __len__(self):
+    return self.n_conds
+
+  def __getitem__(self, idx):
+    unit_idx = np.s_[(idx * self.n_species):(idx * self.n_species + self.n_species)]
+    du_x0 = torch.from_numpy(self.x0[unit_idx]) 
+    du_xss = torch.from_numpy(self.xss[unit_idx])
+    du_p = torch.from_numpy(self.p[:,idx])
+
+    if self.transform:
+      du_x0 = self.transform(du_x0)
+    if self.target_transform:
+      du_xss = self.target_transform(du_xss)
+
+    return (du_x0, du_p), du_xss
+
+"""# Simulated data
+
+Utility functions for simulated data
+"""
+
+# Generate perturbation matrix of the form (nodes, conditions)
+def pert_mat(n_nodes, combos, n_conds=None):
+    """Generate perturbation matrix of the form (nodes, conditions)
+
+    Args:
+        n_nodes (int): number of nodes
+        combos (list): perturbation acting on combination of k nodes, 
+            e.g. [1,2] specifies that perturbation is to be applied to single node and node pairs
+        n_conds (list): number of conditions to sample per combination, of same length as `combos`, default (NONE)
+            is to use all combinations
+    """
+    if n_conds and len(combos) != len(n_conds):
+        raise ValueError(
+            "Argument combos and n_conds must have same length, see help(pert_mat)."
+        )
+
+    from math import comb
+
+    def build_mat(list_conds_gen):
+        ncols = sum(n_conds) if n_conds else sum(
+            comb(n_nodes, k) for k in combos)
+        pmat = np.zeros((n_nodes, ncols), dtype=bool)
+        for j, cond in enumerate(it.chain(*list_conds_gen)):
+            pmat[list(cond), j] = 1
+        return pmat
+
+    if n_conds:  # random sample n_conds[i] perturbation conditions for each node size k = combos[i]
+        lst_conds = []
+        for i, k in enumerate(combos):
+            n_total_conds = comb(n_nodes, k)
+
+            rng = np.random.default_rng(0 + i)
+            selector = np.zeros(n_total_conds, dtype=np.intp)
+            idx = rng.choice(n_total_conds,
+                             size=min(n_conds[i], n_total_conds),
+                             replace=False)
+            selector[idx] = 1
+
+            conds = it.compress(it.combinations(range(n_nodes), k), selector)
+            lst_conds.append(conds)
+
+        out = build_mat(lst_conds)
+    else:  # all combinations for each perturbation node set whose size is specified in combos
+        lst_conds = [it.combinations(range(n_nodes), k) for k in combos]
+        out = build_mat(lst_conds)
+
+    return out
 
 def get_ode_params(n_species, p, seed=None):
     """Get ODE parameters suited for simulation. 
@@ -265,6 +362,208 @@ def get_ode_params(n_species, p, seed=None):
 
     return (r, A, eps, X_ss)  # namedtuple?
 
+"""**NOTE: math.comb not availabe on colab, colab does not yet support Python 3.8 as of April 2022**"""
+
+# # Simulation Example: 10 speices, all single-node perturbations + 20% of each of the
+# # k-node combo for k = 2,...,5
+# n_species = 10
+# n_conds_list = [10] + [
+#     round(0.2 * math.comb(n_species, k)) for k in range(2, 6)
+# ]
+# p = pert_mat(n_species, list(range(1, 6)), n_conds_list)
+# r, A, eps, X_ss = get_ode_params(n_species, p, seed=0)
+
+# n_conds = sum(n_conds_list)
+# x0 = 0.1 * np.ones(n_species * n_conds)  # initial state chosen arbitrary
+
+# # Write to files initial state vector across all conditions,
+# # flattened steady state vector across all conditions, and pert matrix
+# # np.savetxt("x0.txt", x0)
+# # np.savetxt("x_ss.txt", X_ss.ravel(order='F'))
+# # np.savetxt("P.txt", p, fmt='%i')
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+from torch.utils.data import DataLoader
+
+trainset = MBPertDataset("/content/drive/MyDrive/MBPert/x0_train.txt", 
+                         "/content/drive/MyDrive/MBPert/x_ss_train.txt", 
+                         "/content/drive/MyDrive/MBPert/P_train.txt")
+testset = MBPertDataset("/content/drive/MyDrive/MBPert/x0_test.txt", 
+                         "/content/drive/MyDrive/MBPert/x_ss_test.txt", 
+                         "/content/drive/MyDrive/MBPert/P_test.txt")
+trainloader = DataLoader(trainset, batch_size=32, shuffle=True)
+testloader = DataLoader(testset, batch_size=32, shuffle=True)
+
+def reg_loss_interaction(A, reg_lambda = 0.001, order=2):
+  """ Regularization loss for the off-diag elements of interaction matrix A """
+  mask = ~torch.eye(A.shape[0], dtype=torch.bool)
+  return reg_lambda * torch.linalg.norm(A[mask], order)
+
+def reg_loss_r(r, reg_lambda = 0.001, order=2):
+  """ Regularization loss for the growth rate r """
+  return reg_lambda * torch.linalg.norm(r, order)
+
+def reg_loss_eps(eps, reg_lambda = 0.001, order=2):
+  """ Regularization loss for the susceptibility eps """
+  return reg_lambda * torch.linalg.norm(eps, order)
+
+n_species = 10
+mbpert = MBPert(n_species)
+criterion = torch.nn.MSELoss()
+optimizer = torch.optim.Adam(mbpert.parameters())
+
+# Visualize training history
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
+
+for epoch in range(500): 
+
+    running_loss = 0.0 # printing loss statistics per batch
+    epoch_loss = 0.0 # plotting training loss curve
+    for i, data in enumerate(trainloader, 0):
+        # Get the input batch
+        (x0, p), responses = data
+
+        # Get the inputs that model.forward() accepts
+        x0 = torch.ravel(x0)
+        p = torch.t(p)
+
+        # and responses
+        x_ss = torch.ravel(responses)
+
+        # Forward pass
+        x_pred = mbpert(x0, p)
+
+        # Compute loss (MSE + reg)
+        loss = criterion(x_pred, x_ss)
+        loss = loss + reg_loss_interaction(mbpert.A) + reg_loss_r(mbpert.r) + reg_loss_eps(mbpert.eps)
+
+        # Zero gradients, perform a backward pass, and update parameters
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # print statistics
+        running_loss += loss.item()
+        if i % 5 == 4:    # print every 5 mini-batches
+            print('[%d, %5d] loss: %.3f' %
+                  (epoch + 1, i + 1, running_loss / 5))
+            running_loss = 0.0
+
+        epoch_loss += loss.item()
+
+    # Log epoch loss (per batch)
+    writer.add_scalar("Loss/train", epoch_loss/(i+1), epoch)
+
+    # Log test set loss
+    epoch_loss_test = 0.0
+    with torch.no_grad():
+      for i, testdata in enumerate(testloader, 0):
+        (x0, p), responses = testdata
+        x0 = torch.ravel(x0)
+        p = torch.t(p)
+        x_ss = torch.ravel(responses)
+        x_pred = mbpert(x0, p)
+
+        # Compute loss (MSE + reg)
+        loss = criterion(x_pred, x_ss)
+        loss = loss + reg_loss_interaction(mbpert.A) + reg_loss_r(mbpert.r) + reg_loss_eps(mbpert.eps)
+
+        epoch_loss_test += loss.item()
+        
+      writer.add_scalar("Loss/test", epoch_loss_test/(i+1), epoch)
+
+writer.flush()
+writer.close()
+
+# Commented out IPython magic to ensure Python compatibility.
+# %load_ext tensorboard
+
+# Commented out IPython magic to ensure Python compatibility.
+# %reload_ext tensorboard
+
+# Commented out IPython magic to ensure Python compatibility.
+# %tensorboard --logdir=runs
+
+"""## Comparing true and predicted A, r, eps"""
+
+# True A, r, eps are loaded only because they can't be computed on colab, 
+# because math.comb not available
+A = np.loadtxt("/content/drive/MyDrive/MBPert/A.txt", dtype=np.float32)
+r = np.loadtxt("/content/drive/MyDrive/MBPert/r.txt", dtype=np.float32)
+eps = np.loadtxt("/content/drive/MyDrive/MBPert/eps.txt", dtype=np.float32)
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+A_error_heatmap = sns.heatmap(np.abs(A - mbpert.A.detach().numpy()), center=0, annot=True, fmt='.2f')
+
+A_error_heatmap = A_error_heatmap.set_title("Absolute error for A")
+
+A_error_heatmap.get_figure().savefig("/content/drive/MyDrive/MBPert/A_error_heatmap.png")
+
+import pandas as pd
+
+r_df = pd.DataFrame(data={'pred': mbpert.r.detach().numpy(),
+                          'true': r,
+                          'param': 'r'})
+eps_df = pd.DataFrame(data={'pred': mbpert.eps.detach().numpy(),
+                            'true': eps,
+                            'param': 'eps'})
+
+fig, ax = plt.subplots(figsize=(6, 4))
+r_eps_pred_vs_true = sns.scatterplot(data=pd.concat([r_df, eps_df]), x='pred', y='true', hue='param', ax=ax)
+r_eps_pred_vs_true = sns.lineplot(x=np.linspace(-0.5, 1.5), y=np.linspace(-0.5, 1.5), color='g', ax=ax)
+
+r_eps_pred_vs_true.get_figure().savefig("/content/drive/MyDrive/MBPert/r_eps_pred_vs_true.png")
+
+# Plot predicted vs true steady states in test set
+x_ss_test = []
+x_pred_test = []
+with torch.no_grad():
+  for i, testdata in enumerate(testloader, 0):
+    (x0, p), responses = testdata
+    x0 = torch.ravel(x0)
+    p = torch.t(p)
+    x_ss = torch.ravel(responses)
+    x_pred = mbpert(x0, p)
+
+    x_ss_test.append(x_ss)
+    x_pred_test.append(x_pred)
+
+x_ss_test = torch.cat(x_ss_test, dim=0)
+x_pred_test = torch.cat(x_pred_test, dim=0)
+
+x_df = pd.DataFrame(data={'pred': x_pred_test, 'true': x_ss_test, 'value': 'x'})
+# fig, ax = plt.subplots(figsize=(6, 4))
+# x_test_pred_vs_true = sns.scatterplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, ax=ax)
+x_test_pred_vs_true = sns.relplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)
+plt.plot(np.linspace(0.0, 2.5), np.linspace(0.0, 2.5), color='g')
+# x_test_pred_vs_true = sns.lineplot(x=np.linspace(0.0, 2.5), y=np.linspace(0.0, 2.5), color='g', ax=ax)
+
+def annotate(data, **kwargs):
+    r, _ = stats.pearsonr(data['pred'], data['true'])
+    ax = plt.gca()
+    ax.text(0.5, 0.1, 'Pearson correlation r={:.3f}'.format(r),
+            transform=ax.transAxes)
+    
+x_test_pred_vs_true.map_dataframe(annotate)
+plt.title("Predicted and true steady states in test set \nacross all conditions")
+plt.show()
+
+x_test_pred_vs_true.savefig("/content/drive/MyDrive/MBPert/x_test_pred_vs_true.png")
+
+# Save model
+torch.save(mbpert.state_dict(), "/content/drive/MyDrive/MBPert/mbpert_sim.pth")
+
+# Load model
+# mbpert = MBPert(n_species)
+# mbpert.load_state_dict(torch.load("/content/drive/MyDrive/MBPert/mbpert_sim.pth"))
+
+"""# Test on toy example"""
+
 x0 = reshape_fortran(0.2 * torch.ones((3,3)), (-1,)) # 3 species, 3 conditions
 p = torch.eye(3) # 3 single-species perturbations
 r, A, eps, X_ss = get_ode_params(3, p.numpy(), seed=0)
@@ -274,19 +573,15 @@ print(f'x0: {x0}\n')
 print(f'p: {p}\n')
 print(f'x_true: {x_true}\n')
 
-mbpert = MBPert(p)
+#mbpert = MBPert(p)
+mbpert = MBPert(3)
 criterion = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(mbpert.parameters()) # Adam is much better than SGD in this case
 #optimizer = torch.optim.SGD(mbpert.parameters(), lr=1e-3)
 
-def reg_loss_interaction(A, reg_lambda = 0.001, order=2):
-  """ Regularization loss for the off-diag elements of interaction matrix A """
-  mask = ~torch.eye(A.shape[0], dtype=torch.bool)
-  return reg_lambda * torch.linalg.norm(A[mask], order)
-
 for i in range(400):
     # Forward pass
-    x_pred = mbpert(x0)
+    x_pred = mbpert(x0, p)
 
     # Compute and print loss
     loss = criterion(x_pred, x_true)
@@ -305,7 +600,7 @@ print(f'Estimated A: {mbpert.A}\nTrue A: {A}\n')
 print(f'Estimated r:{mbpert.r}\nTrue r: {r}\n')
 print(f'Estimated eps: {mbpert.eps}\nTrue eps: {eps}\n')
 
-"""**Test ODE solver**"""
+"""# Test ODE solver"""
 
 r.dtype, p.dtype
 
@@ -334,9 +629,12 @@ A.data.fill_diagonal_(-1)
 A.dtype
 
 a = torch.tensor([1,1,1])
-a
+b = a
+c = torch.cat((a, b), dim=0)
 
-a[:,None].shape
+c
+
+torch.hstack((a[:,None], a[:,None]))
 
 b = torch.arange(1,16).reshape(3,5)
 
