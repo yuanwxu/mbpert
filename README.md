@@ -1,2 +1,2 @@
 # mbpert
-Combining mechanistic models and machine learning to understand microbiota dynamics and intereaction
+Combining mechanistic models and machine learning to understand microbiota dynamics and interaction
