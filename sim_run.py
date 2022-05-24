@@ -92,6 +92,7 @@ if __name__ == '__main__':
     r = np.loadtxt("data/r.txt", dtype=np.float32)
     eps = np.loadtxt("data/eps.txt", dtype=np.float32)
 
+    plt.figure()
     A_error_heatmap = sns.heatmap(np.abs(A - mbpert.A.detach().numpy()), center=0, annot=True, fmt='.2f')
     A_error_heatmap = A_error_heatmap.set_title("Absolute error for A")
     A_error_heatmap.get_figure().savefig("data/figs/A_error_heatmap.png")
@@ -103,6 +104,7 @@ if __name__ == '__main__':
                                 'true': eps,
                                 'param': 'eps'})
 
+    plt.figure()
     fig, ax = plt.subplots(figsize=(6, 4))
     r_eps_pred_vs_true = sns.scatterplot(data=pd.concat([r_df, eps_df]), x='pred', y='true', hue='param', ax=ax)
     r_eps_pred_vs_true = sns.lineplot(x=np.linspace(-0.5, 1.5), y=np.linspace(-0.5, 1.5), color='g', ax=ax)
@@ -126,6 +128,7 @@ if __name__ == '__main__':
     x_pred_test = torch.cat(x_pred_test, dim=0)
 
     x_df = pd.DataFrame(data={'pred': x_pred_test, 'true': x_ss_test, 'value': 'x'})
+    plt.figure()
     # fig, ax = plt.subplots(figsize=(6, 4))
     # x_test_pred_vs_true = sns.scatterplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, ax=ax)
     x_test_pred_vs_true = sns.relplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)

@@ -60,11 +60,11 @@ class MBPert(nn.Module):
 # length n_species * n_conds, of `n_conds` blocks with `n_species` elements per 
 # block.
 class MBPertDataset(Dataset):
-  def __init__(self, x0_file, xss_file, p_file, transform=None, target_transform=None):
-    self.x0 = np.loadtxt(x0_file, dtype=np.float32)
-    self.xss = np.loadtxt(xss_file, dtype=np.float32)
+  def __init__(self, x0, xss, p, transform=None, target_transform=None):
+    self.x0 = np.loadtxt(x0, dtype=np.float32) if isinstance(x0, str) else x0.astype(np.float32)
+    self.xss = np.loadtxt(xss, dtype=np.float32) if isinstance(xss, str) else xss.astype(np.float32)
 
-    self.p = np.loadtxt(p_file, dtype=bool)
+    self.p = np.loadtxt(p, dtype=bool) if isinstance(p, str) else p.astype(bool)
     self.n_species = self.p.shape[0]
     self.n_conds = self.p.shape[1]
     
