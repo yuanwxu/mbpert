@@ -20,8 +20,8 @@ def glvp2(t, x, r, A, eps, P, T):
        x --- (n_species,) Species (dimensionless) absolute abundances 
        r --- (n_species,) Growth rate
        A --- (n_species, n_species) Species interaction matrix
-       eps --- (n_species, n_pert) eps_{ij}: Species i's susceptibility to perturbation j
-       P --- (T, n_pert) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d 
+       eps --- (n_species, perts) eps_{ij}: Species i's susceptibility to perturbation j
+       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d 
        T --- duration of the observation in days, used to scale t
     """
     assert t <= INTEGRATE_END
@@ -61,7 +61,7 @@ class MBPertTSDataset(Dataset):
   def __init__(self, X, P, tobs, transform=None, target_transform=None):
     """X --- (n_species, n_t) Microbiome time series data X_{i} giving species i's abundance trajectory.
                               The first column is the initial state.
-       P --- (T+1, n_pert) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
+       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
                            where d = 0, 1, ..., T 
        tobs --- (n_t,) Actual time units (days) at which the data was observed. Should be in increasing
                        order and correspond to columns of X. The first entry should be 0, i.e. initial 

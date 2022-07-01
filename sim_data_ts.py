@@ -13,7 +13,7 @@ INTEGRATE_END = 30 # define end point of numerical integration
 
 if __name__ == '__main__':
     n_species = 10
-    r, A, eps, _ = get_ode_params(n_species, n_pert=1, seed=0)
+    r, A, eps, _ = get_ode_params(n_species, perts=1, seed=0)
     x0 = 0.1 * np.ones(n_species)  # initial state chosen arbitrary
     T = 90
     P = np.zeros(T+1).reshape(-1, 1)

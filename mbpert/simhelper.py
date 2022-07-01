@@ -53,24 +53,25 @@ def pert_mat(n_nodes, combos, n_conds=None):
     return out
 
 
-def get_ode_params(n_species, p=None, n_pert=0, seed=None):
+def get_ode_params(n_species, p=None, perts=0, seed=None):
     """Get ODE parameters suited for simulation. 
        
     Args:
         n_species (int): Number of species
         p (nparray): Perturbation matrix of shape (n_species, n_conds) returned from pert_mat().
-                    If None, will assume time series data and n_pert will be used.
-        n_pert (int): number of perturbations in time series data 
+                    If None, will assume time series data and perts will be used.
+        perts (int): kinds of perturbations in time series data, perts=1 if only a single type of 
+                     perturbation was applied (maybe at multiple time points)
     
     Returns:
         If p provided:
             (growth rate r, interaction matrix A, susceptibility vector eps,
             steady state solutions across all pert conditions of shape (n_species, n_conds))
         Otherwise:
-            (growth rate r, interaction matrix A, susceptibility matrix eps of shape (n_species, n_pert),
+            (growth rate r, interaction matrix A, susceptibility matrix eps of shape (n_species, perts),
             steady state solutions of shape (n_species,))
     """
-    if p and n_pert > 0:
+    if p and perts > 0:
         raise ValueError("Provide one of pert matrix (n_species, n_conds) or "
                          "number of perturbations for time sereis data, but not both.")
     if p and n_species != p.shape[0]:
@@ -94,7 +95,7 @@ def get_ode_params(n_species, p=None, n_pert=0, seed=None):
             # Steady state solution across all pert conditions
             X_ss = -linalg.inv(A) @ (r[:, np.newaxis] + eps[:, np.newaxis] * p)
         else:
-            eps = rng.uniform(-0.2, 1, (n_species, n_pert))
+            eps = rng.uniform(-0.2, 1, (n_species, perts))
             X_ss = -linalg.inv(A) @ r[:, np.newaxis]
 
         # Check all solutions are positive
