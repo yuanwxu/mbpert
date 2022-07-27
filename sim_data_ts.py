@@ -1,6 +1,6 @@
 # Simulate microbiome time series data: 
 # 10 species, sampling times are at days 0---90 with an interval of 5
-# One perturbation applied at day 30
+# One perturbation applied at day 30 and day 50
 # Data points from the first 60 days used for training, those from the remaining 30 days used for testing
 
 import os
@@ -17,7 +17,7 @@ if __name__ == '__main__':
     x0 = 0.1 * np.ones(n_species)  # initial state chosen arbitrary
     T = 90
     P = np.zeros(T+1).reshape(-1, 1)
-    P[30] = 1
+    P[np.array([30, 50])] = 1
     tobs = np.arange(0, T+1, 5)
     t = INTEGRATE_END * tobs / T
 
