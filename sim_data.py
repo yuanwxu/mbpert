@@ -18,4 +18,4 @@ if __name__ == '__main__':
     split_outputs = mbpert_split(x0, X_ss, p, test_size=0.3, shuffle=False)
 
     # Save results
-    mbpert_writer(split_outputs)  # ode_params=dict(A=A, r=r, eps=eps)
+    mbpert_writer(split_outputs, ode_params=dict(A=A, r=r, eps=eps))

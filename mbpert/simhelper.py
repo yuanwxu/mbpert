@@ -5,7 +5,7 @@ from scipy import linalg
 from sklearn.model_selection import train_test_split
 
 # Generate perturbation matrix of the form (nodes, conditions)
-def pert_mat(n_nodes, combos, n_conds=None):
+def pert_mat(n_nodes, combos, n_conds=None, use_seed=True):
     """Generate perturbation matrix of the form (nodes, conditions)
 
     Args:
@@ -35,7 +35,8 @@ def pert_mat(n_nodes, combos, n_conds=None):
         for i, k in enumerate(combos):
             n_total_conds = comb(n_nodes, k)
 
-            rng = np.random.default_rng(0 + i)
+            seed = 0 + i if use_seed else None
+            rng = np.random.default_rng(seed)
             selector = np.zeros(n_total_conds, dtype=np.intp)
             idx = rng.choice(n_total_conds,
                              size=min(n_conds[i], n_total_conds),
