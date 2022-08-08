@@ -40,23 +40,9 @@ def plot_r_eps(mbp, file_in_1, file_in_2, file_out=None):
         r_eps.get_figure().savefig(file_out)
 
 # Plot predicted vs true steady states in test set
-def plot_ss_test(mbp, testloader, file_out=None):
-    x_ss_test = []
-    x_pred_test = []
-    with torch.no_grad():
-        for testdata in testloader:
-            (x0, p), responses = testdata
-            x0 = torch.ravel(x0)
-            p = torch.t(p)
-            x_ss = torch.ravel(responses).numpy()
-            x_pred = mbp.predict(x0, p)
-
-            x_ss_test.append(x_ss)
-            x_pred_test.append(x_pred)
-    
-    x_ss_test = np.concatenate(x_ss_test)
-    x_pred_test = np.concatenate(x_pred_test)
-    x_df = pd.DataFrame(data={'pred': x_pred_test, 'true': x_ss_test, 'value': 'x'})
+def plot_ss_test(mbp, file_out=None):
+    x_df = mbp.predict_val()
+    x_df['value'] = 'x'
     
     plt.figure()
     ss_test = sns.relplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)
@@ -75,3 +61,31 @@ def plot_ss_test(mbp, testloader, file_out=None):
     if file_out:
         ss_test.savefig(file_out)
 
+# Plot train and validation loss across folds (for leave-one-species-out CV)
+def plot_loss_folds(df_loss, file_out=None):
+    plt.figure()
+    g_loss = sns.relplot(x='epoch', y='value', hue='Loss', col='fold',  
+                        data=df_loss.melt(id_vars=['fold', 'epoch'], 
+                                        value_vars=['loss_train', 'loss_val'], 
+                                        var_name='Loss'),
+                        kind='line', col_wrap=5, height=2, linewidth=2)
+    g_loss.set_ylabels('')
+
+    if file_out:
+        g_loss.savefig(file_out)
+
+# Plot predicted and true steady states for each left-out test set (for leave-one-species-out CV)
+def plot_ss_folds(df_ss, file_out=None):
+    def annotate(x, y, **kwargs):
+        plt.axline((0, 0), (1, 1), color='k', linestyle='dashed')
+        r, _ = stats.pearsonr(x, y)
+        plt.annotate(f"r = {r:.3f}", xy=(0.7, 0.1), 
+                     xycoords=plt.gca().get_yaxis_transform())
+
+    plt.figure()    
+    g_ss = sns.FacetGrid(df_ss, col='fold', col_wrap=4, height=2)
+    g_ss.map(sns.scatterplot, 'pred', 'true')
+    g_ss.map(annotate, 'pred', 'true')
+
+    if file_out:
+        g_ss.savefig(file_out)

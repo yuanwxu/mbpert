@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import datetime
 import torch
 import matplotlib.pyplot as plt
@@ -206,6 +207,33 @@ class MBP(object):
         self.model.train()
         # Detaches it, brings it to CPU and back to Numpy
         return y_hat_tensor.detach().cpu().numpy()
+
+    # Make predictions on validation set, return a two-column data frame 
+    # with predicted and true steady states
+    def predict_val(self):
+        if self.val_loader is None:
+            return None
+
+        self.model.eval()
+
+        val_true = []
+        val_pred = []
+        with torch.no_grad():
+            for testdata in self.val_loader:
+                (x0, p), responses = testdata
+                x0 = torch.ravel(x0)
+                p = torch.t(p)
+                x_ss = torch.ravel(responses).numpy()
+                x_pred = self.predict(x0, p)
+
+                val_true.append(x_ss)
+                val_pred.append(x_pred)
+        
+        val_true = np.concatenate(val_true)
+        val_pred = np.concatenate(val_pred)
+        x_df = pd.DataFrame(data={'pred': val_pred, 'true': val_true})
+        return x_df
+    
 
     def plot_losses(self):
         fig = plt.figure(figsize=(10, 4))
