@@ -47,7 +47,7 @@ if __name__ == '__main__':
     plot_r_eps(mbp, "data/r.txt", "data/eps.txt")
 
     # Plot predicted vs true steady states in test set
-    plot_ss_test(mbp, testloader)
+    plot_ss_test(mbp)
 
     # Save checkpoint
     mbp.save_checkpoint("checkpoint/sim_parallel_pert.pth")

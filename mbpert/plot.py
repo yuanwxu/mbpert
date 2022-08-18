@@ -27,8 +27,8 @@ def plot_r_eps(mbp, file_in_1, file_in_2, file_out=None):
     r_df = pd.DataFrame(data={'est': mbp.model.state_dict()['r'].numpy(),
                             'exact': r,
                             'param': 'r'})
-    eps_df = pd.DataFrame(data={'est': mbp.model.state_dict()['eps'].numpy(),
-                                'exact': eps,
+    eps_df = pd.DataFrame(data={'est': mbp.model.state_dict()['eps'].numpy().ravel(),
+                                'exact': eps.ravel(),
                                 'param': 'eps'})
 
     plt.figure()
@@ -89,3 +89,21 @@ def plot_ss_folds(df_ss, file_out=None):
 
     if file_out:
         g_ss.savefig(file_out)
+
+# Plot predicted and true states at test time points (for time series data)
+def plot_pred_ts(mbp, file_out=None):
+    df_ts = mbp.predict_val_ts()
+
+    def annotate(x, y, **kwargs):
+        plt.axline((0, 0), (1, 1), color='k', linestyle='dashed')
+        r, _ = stats.pearsonr(x, y)
+        plt.annotate(f"r = {r:.3f}", xy=(0.7, 0.1), 
+                     xycoords=plt.gca().get_yaxis_transform())
+    
+    plt.figure()
+    g_ts = sns.FacetGrid(df_ts, col='t', col_wrap=4, height=2)
+    g_ts.map(sns.scatterplot, 'pred', 'true')
+    g_ts.map(annotate, 'pred', 'true')
+
+    if file_out:
+        g_ts.savefig(file_out) 
