@@ -20,6 +20,8 @@ if __name__ == '__main__':
     P[np.array([30, 50])] = 1
     tobs = np.arange(0, T+1, 5)
     t = INTEGRATE_END * tobs / T
+    # Metadata with two columns: group id and measurement time 
+    meta = np.concatenate((np.ones(len(tobs), dtype=int).reshape(-1,1), tobs.reshape(-1,1)), axis=1)
 
     sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T), dense_output=True)
     z = sol.sol(t)
@@ -30,12 +32,12 @@ if __name__ == '__main__':
         os.makedirs('data/ts')
         
     np.savetxt("data/ts/X_train.txt", z[:,:train_stop_idx])
-    np.savetxt("data/ts/tobs_train.txt", tobs[:train_stop_idx])
+    np.savetxt("data/ts/meta_train.txt", meta[:train_stop_idx])
 
     # For test data need to prepend the initial state
     np.savetxt("data/ts/X_test.txt", np.concatenate((z[:,0].reshape(-1,1), 
                                                      z[:, train_stop_idx:]), axis=1))
-    np.savetxt("data/ts/tobs_test.txt", np.concatenate(([0], tobs[train_stop_idx:])))
+    np.savetxt("data/ts/meta_test.txt", np.concatenate((meta[0, np.newaxis], meta[train_stop_idx:])))
 
     np.savetxt("data/ts/P.txt", P, fmt='%i')
 

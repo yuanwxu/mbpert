@@ -11,17 +11,17 @@ from mbpert.odesolver import RK45
 # End point of integration, assume integration starts at t = 0. Used to rescale
 # the actual observation time point in days. A larger value should be used if
 # the observed time series are steady state abundances
-INTEGRATE_END = 30 
+INTEGRATE_END = 30
 
 def glvp2(t, x, r, A, eps, P, T):
     """Define generalized lotka-volterra dynamic system with time-dependent
        perturbations
 
-       x --- (n_species,) Species (dimensionless) absolute abundances 
+       x --- (n_species,) Species (dimensionless) absolute abundances
        r --- (n_species,) Growth rate
        A --- (n_species, n_species) Species interaction matrix
        eps --- (n_species, perts) eps_{ij}: Species i's susceptibility to perturbation j
-       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d 
+       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
        T --- duration of the observation in days, used to scale t
     """
     assert t <= INTEGRATE_END
@@ -58,14 +58,17 @@ class MBPertTS(nn.Module):
 # Custome Dataset to handle each data unit. Here each data unit corresponds to
 # one time slice: initial state at t = 0 and output state at t = t
 class MBPertTSDataset(Dataset):
-  def __init__(self, X, P, tobs, transform=None, target_transform=None):
+  def __init__(self, X, P, meta, transform=None, target_transform=None):
     """X --- (n_species, n_t) Microbiome time series data X_{i} giving species i's abundance trajectory.
-                              The first column is the initial state.
+                              The first column is the initial state. For multiple groups, X is a columnwise
+                              concatenation of species trajectories of all groups.
        P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
-                           where d = 0, 1, ..., T 
-       tobs --- (n_t,) Actual time units (days) at which the data was observed. Should be in increasing
-                       order and correspond to columns of X. The first entry should be 0, i.e. initial 
-                       observation is always at day 0. 
+                           where d = 0, 1, ..., T
+       meta --- (n_t, 2) Metadata with two columns, group id and measurement time.
+                         The first column is group id (if all data are from one individual then
+                         this will be a column of 1s), the second column contains actual time units (days)
+                         at which the data was observed, corresponding to columns of X. Typically,
+                         but not always, the initial observation is at day 0.
     """
     self.X = np.loadtxt(X, dtype=np.float32) if isinstance(X, str) else X.astype(np.float32)
     self.P = np.loadtxt(P, dtype=bool) if isinstance(P, str) else P.astype(bool)
@@ -75,23 +78,30 @@ class MBPertTSDataset(Dataset):
     if self.P.ndim == 1:
       self.P = self.P.reshape(-1, 1)
     self.P = torch.from_numpy(self.P).float()
-      
-    self.tobs = np.loadtxt(tobs, dtype=np.float32) if isinstance(tobs, str) else tobs.astype(np.float32)
+
+    self.meta = np.loadtxt(meta, dtype=np.float32) if isinstance(meta, str) else meta.astype(np.float32)
+    self.tobs = self.meta[:, 1]
     self.n_species = self.X.shape[0]
     self.T = self.P.shape[0] - 1
+    self.gids = self.meta[:, 0]
 
     self.transform = transform
     self.target_transform = target_transform
 
-    if len(self.tobs) != self.X.shape[1] or len(self.tobs) < 2 or self.tobs[0] != 0:
+    if len(self.tobs) != self.X.shape[1] or len(self.tobs) < 2:
       raise ValueError("Incorrect input data size.")
 
   def __len__(self):
     return len(self.tobs) - 1
 
   def __getitem__(self, idx):
-    x0 = torch.from_numpy(self.X[:, 0])
-    t = self.tobs[idx + 1] * INTEGRATE_END / self.T
+    gid = self.gids[idx] # which group does 'idx' correspond to
+    if self.gids[idx + 1] != gid: # next 'idx' corresponds to a different group, no data to be returned
+        return None
+
+    start = np.argmax(self.gids == gid)
+    x0 = torch.from_numpy(self.X[:, start])
+    t = self.tobs[idx + 1] * INTEGRATE_END / (self.T - self.tobs[start])
     xt = torch.from_numpy(self.X[:, idx + 1])
 
     if self.transform:

@@ -10,10 +10,10 @@ if __name__ == '__main__':
     # Build Dataset and Dataloader
     trainset = MBPertTSDataset("data/ts/X_train.txt", 
                                "data/ts/P.txt",
-                               "data/ts/tobs_train.txt")
+                               "data/ts/meta_train.txt")
     testset = MBPertTSDataset("data/ts/X_test.txt", 
                                "data/ts/P.txt",
-                               "data/ts/tobs_test.txt")
+                               "data/ts/meta_test.txt")
     trainloader = DataLoader(trainset, batch_size=4, shuffle=False)
     testloader = DataLoader(testset, batch_size=4, shuffle=False)
 
