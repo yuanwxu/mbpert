@@ -297,6 +297,7 @@ class MBP(object):
                 (x0_batch, t_batch), y_batch = testdata
                 for x0, t, y in zip(x0_batch, t_batch, y_batch):
                     y_t = self.predict_ts(x0, t)
+                    pred_val['species_id'] = range(len(y_t))
                     pred_val['t'] = t.item()
                     pred_val['pred'] = y_t
                     pred_val['true'] = y

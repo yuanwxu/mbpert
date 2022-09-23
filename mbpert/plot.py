@@ -106,4 +106,17 @@ def plot_pred_ts(mbp, file_out=None):
     g_ts.map(annotate, 'pred', 'true')
 
     if file_out:
-        g_ts.savefig(file_out) 
+        g_ts.savefig(file_out)
+
+# Plot predicted and true trajectory for each hold-out group (for time series data with multiple groups)
+def plot_traj_groups(df_val, file_out=None):
+    plt.figure()
+    trajgps = sns.relplot(x='t', y='value', hue='key', row='species_id', col='group',  
+                        data=df_val.melt(id_vars=['t', 'group', 'species_id'], 
+                                        value_vars=['pred', 'true'], 
+                                        var_name='key'),
+                        kind='line', height=2, linewidth=2)
+    trajgps.set_ylabels('')
+
+    if file_out:
+        trajgps.savefig(file_out)

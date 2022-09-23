@@ -65,8 +65,8 @@ class MBPertTSDataset(Dataset):
        P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
                            where d = 0, 1, ..., T
        meta --- (n_t, 2) Metadata with two columns, group id and measurement time.
-                         The first column is group id (if all data are from one individual then
-                         this will be a column of 1s), the second column contains actual time units (days)
+                         The first column is group id in natural order (if all data are from one individual 
+                         then this will be a column of 1s), the second column contains actual time units (days)
                          at which the data was observed, corresponding to columns of X. Typically,
                          but not always, the initial observation is at day 0.
     """
@@ -84,6 +84,7 @@ class MBPertTSDataset(Dataset):
     self.n_species = self.X.shape[0]
     self.T = self.P.shape[0] - 1
     self.gids = self.meta[:, 0]
+    self.n_groups = int(max(self.gids))
 
     self.transform = transform
     self.target_transform = target_transform
@@ -96,13 +97,23 @@ class MBPertTSDataset(Dataset):
 
   def __getitem__(self, idx):
     gid = self.gids[idx] # which group does 'idx' correspond to
-    if self.gids[idx + 1] != gid: # next 'idx' corresponds to a different group, no data to be returned
-        return None
 
-    start = np.argmax(self.gids == gid)
-    x0 = torch.from_numpy(self.X[:, start])
-    t = self.tobs[idx + 1] * INTEGRATE_END / (self.T - self.tobs[start])
-    xt = torch.from_numpy(self.X[:, idx + 1])
+    # If next idx corresponds to a different group, then we are at the end time point, 
+    # no data is available for the current group, return the first data unit of next group.
+    # Note that this will produce a duplicate data unit for the first data unit of each group
+    # from the second to the last group. But this allows us to continue using len(self.tobs) - 1
+    # instead of len(self.tobs) - self.n_groups in defining the number of instances in the Dataset, 
+    # which works for single group case. 
+    if self.gids[idx + 1] != gid: 
+      start = idx + 1
+      x0 = torch.from_numpy(self.X[:, start])
+      t = self.tobs[start + 1] * INTEGRATE_END / self.T
+      xt = torch.from_numpy(self.X[:, start + 1])
+    else:
+      start = np.argmax(self.gids == gid)
+      x0 = torch.from_numpy(self.X[:, start])
+      t = self.tobs[idx + 1] * INTEGRATE_END / self.T
+      xt = torch.from_numpy(self.X[:, idx + 1])
 
     if self.transform:
       x0 = self.transform(x0)
