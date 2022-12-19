@@ -72,10 +72,10 @@ def get_ode_params(n_species, p=None, perts=0, seed=None):
             (growth rate r, interaction matrix A, susceptibility matrix eps of shape (n_species, perts),
             steady state solutions of shape (n_species,))
     """
-    if p and perts > 0:
+    if p is not None and perts > 0:
         raise ValueError("Provide one of pert matrix (n_species, n_conds) or "
                          "number of perturbations for time sereis data, but not both.")
-    if p and n_species != p.shape[0]:
+    if p is not None and n_species != p.shape[0]:
         raise ValueError(
             "Number of species does not match first dimension of pert matrix.")
 
@@ -90,7 +90,7 @@ def get_ode_params(n_species, p=None, perts=0, seed=None):
         # r: Unif(0, 1)
         r = rng.random((n_species, ))
 
-        if p:
+        if p is not None:
             # eps: Unif(-0.2,1)
             eps = rng.uniform(-0.2, 1, (n_species, ))
             # Steady state solution across all pert conditions
@@ -113,6 +113,37 @@ def get_ode_params(n_species, p=None, perts=0, seed=None):
     return (r, A, eps, X_ss)  # namedtuple?
 
 
+def add_noise(params, stdev, seed=None):
+    """ Add (Gaussian) noise to the ODE parameters
+
+    Args: 
+        params (dict):  dictionary containing parameters for the ODE, keys must be "A", "r" or "eps"
+        stdev (dict): dictionary containing standard deviations for each parameter in params
+    
+    Returns:
+        Dictionary containing noisy parameters
+    """
+
+    rng = np.random.default_rng(seed)
+
+    newparams = {}
+    for key in params:
+        dkey = rng.normal(size=params[key].shape, scale=stdev[key])
+        newparams[key] = params[key] + dkey
+        if key == "A": # not updating the diagnal
+            np.fill_diagonal(newparams[key], np.diag(params[key]))
+    
+    # Make sure the new growth rates are all positive
+    if 'r' in newparams:
+        for i, ri in enumerate(newparams['r']):
+            if ri < 0:
+                while ri < 0:
+                    ri = params['r'][i] + rng.normal(scale=stdev['r'])
+                newparams['r'][i] = ri
+
+    return newparams
+
+    
 def mbpert_split(x0, X_ss, P, **kwargs):
     """ Data split wrapper: train-test split
     

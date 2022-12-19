@@ -194,7 +194,10 @@ class MBP(object):
 
             # If verbose=True, will print train and validation losses per mini-batch
             if verbose:
-                print(f'Epoch: {epoch + 1} | Loss train/test: {loss:.4f}/{val_loss:.4f} ')
+                if self.val_loader is None:
+                    print(f'Epoch: {epoch + 1} | Loss train: {loss:.4f} ')
+                else:
+                    print(f'Epoch: {epoch + 1} | Loss train/test: {loss:.4f}/{val_loss:.4f} ')
 
         if self.writer:
             # Closes the writer
