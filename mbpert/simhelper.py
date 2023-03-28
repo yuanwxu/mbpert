@@ -5,32 +5,32 @@ from scipy import linalg
 from sklearn.model_selection import train_test_split
 
 # Generate perturbation matrix of the form (nodes, conditions)
-def pert_mat(n_nodes, combos, n_conds=None, use_seed=True):
+def pert_mat(n_nodes, combos, n_conds_lst=None, use_seed=True):
     """Generate perturbation matrix of the form (nodes, conditions)
 
     Args:
         n_nodes (int): number of nodes
         combos (list): perturbation acting on combination of k nodes, 
             e.g. [1,2] specifies that perturbation is to be applied to single node and node pairs
-        n_conds (list): number of conditions to sample per combination, of same length as `combos`, default (NONE)
+        n_conds_lst (list): number of conditions to sample per combination, of same length as `combos`, default (NONE)
             is to use all combinations
     """
-    if n_conds and len(combos) != len(n_conds):
+    if n_conds_lst and len(combos) != len(n_conds_lst):
         raise ValueError(
-            "Argument combos and n_conds must have same length, see help(pert_mat)."
+            "Argument combos and n_conds_lst must have same length, see help(pert_mat)."
         )
 
     from math import comb
 
     def build_mat(list_conds_gen):
-        ncols = sum(n_conds) if n_conds else sum(
+        ncols = sum(n_conds_lst) if n_conds_lst else sum(
             comb(n_nodes, k) for k in combos)
         pmat = np.zeros((n_nodes, ncols), dtype=bool)
         for j, cond in enumerate(it.chain(*list_conds_gen)):
             pmat[list(cond), j] = 1
         return pmat
 
-    if n_conds:  # random sample n_conds[i] perturbation conditions for each node size k = combos[i]
+    if n_conds_lst:  # random sample n_conds_lst[i] perturbation conditions for each node size k = combos[i]
         lst_conds = []
         for i, k in enumerate(combos):
             n_total_conds = comb(n_nodes, k)
@@ -39,7 +39,7 @@ def pert_mat(n_nodes, combos, n_conds=None, use_seed=True):
             rng = np.random.default_rng(seed)
             selector = np.zeros(n_total_conds, dtype=np.intp)
             idx = rng.choice(n_total_conds,
-                             size=min(n_conds[i], n_total_conds),
+                             size=min(n_conds_lst[i], n_total_conds),
                              replace=False)
             selector[idx] = 1
 
@@ -173,6 +173,45 @@ def mbpert_split(x0, X_ss, P, **kwargs):
     return x0_train, x0_test, x_ss_train, x_ss_test, P_train, P_test
 
 
+def mbpert_split_by_cond(x0, X_ss, P, n_conds_lst, keep_as_train=2):
+    """ Data split by perturbation condition, for the scenario where, say, 
+        all mono-species and pairwise-species perturbations form training set, 
+        higher order combinations form the test set
+    
+    Args:
+        x0: flattened initial state vector containing contiguous blocks where
+            each block corresponds to one condition
+        X_ss: array of shape (n_species, n_conds), steady states
+        P: array of shape (n_species, n_conds), perturbation matrix
+        n_conds_lst: the same argument as in pert_mat()
+        keep_as_train: n_conds_lst[:keep_as_train] will form the training set
+    """
+    if x0.size != X_ss.size:
+        raise ValueError(
+            "Incompatible shape between initial and steady states.")
+    
+    if sum(n_conds_lst) != P.shape[1]:
+        raise ValueError(
+            "Total number of pert conditions does not match P."
+        )
+
+    X0 = x0.reshape(X_ss.shape, order='F')
+    split_idx = sum(n_conds_lst[:keep_as_train])
+    X0_train, X0_test = X0.T[:split_idx], X0.T[split_idx:]
+    X_ss_train, X_ss_test = X_ss.T[:split_idx], X_ss.T[split_idx:]
+    P_train, P_test = P.T[:split_idx], P.T[split_idx:]
+
+    # Flatten X0 and X_ss
+    x0_train, x0_test, x_ss_train, x_ss_test = [
+        np.ravel(x) for x in (X0_train, X0_test, X_ss_train, X_ss_test)
+    ]
+
+    # Transpose P_train and P_test
+    P_train, P_test = P_train.T, P_test.T
+
+    return x0_train, x0_test, x_ss_train, x_ss_test, P_train, P_test
+
+
 def mbpert_writer(spliter_output, ode_params=None):
     """Data writer: write output of the split helper 
     
@@ -180,7 +219,7 @@ def mbpert_writer(spliter_output, ode_params=None):
         ode_params: if not None, should be a dictionary of ODE params
                     to save.
     """
-    x0_train, x0_test, x_ss_train, x_ss_test, P_train, P_test = split_outputs
+    x0_train, x0_test, x_ss_train, x_ss_test, P_train, P_test = spliter_output
 
     np.savetxt("x0_train.txt", x0_train)
     np.savetxt("x0_test.txt", x0_test)
@@ -192,4 +231,4 @@ def mbpert_writer(spliter_output, ode_params=None):
     if ode_params:
         np.savetxt("A.txt", ode_params['A'])
         np.savetxt("r.txt", ode_params['r'])
-        np.savetxt("eps", ode_params['eps'])
+        np.savetxt("eps.txt", ode_params['eps'])

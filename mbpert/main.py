@@ -163,7 +163,8 @@ class MBP(object):
     
     def train(self, n_epochs, seed=42, verbose=False):
         # To ensure reproducibility of the training process
-        self.set_seed(seed)
+        if seed:
+            self.set_seed(seed)
 
         for epoch in range(n_epochs):
             # Keeps track of the numbers of epochs

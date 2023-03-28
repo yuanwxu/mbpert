@@ -8,26 +8,29 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-# Absolute error in the interaction matrix A
-def plot_error_A(mbp, file_in, file_out=None):
-    A = np.loadtxt(file_in, dtype=np.float32)
+# Plot error heatmap for the interaction matrix A
+def plot_error_A(A_est, A_exact, file_out=None, relative=False):
+    A = np.loadtxt(A_exact, dtype=np.float32) if isinstance(A_exact, str) else A_exact.astype(np.float32)
+    err_abs = np.abs(A - A_est)
+    err = err_abs / A if relative else err_abs
 
     plt.figure()
-    A_error_heatmap = sns.heatmap(np.abs(A - mbp.model.state_dict()['A'].numpy()), center=0, annot=True, fmt='.2f')
-    A_error_heatmap = A_error_heatmap.set_title("Absolute error for A")
+    A_error_heatmap = sns.heatmap(err, center=0, annot=True, fmt='.2f')
+    A_error_heatmap = A_error_heatmap.set_title(("Relative" if relative else "Absolute") +\
+        " error for A")
 
     if file_out:
         A_error_heatmap.get_figure().savefig(file_out)
 
 # Estimated and exact growth rate and susceptibility vectors r and eps
-def plot_r_eps(mbp, file_in_1, file_in_2, file_out=None):
-    r = np.loadtxt(file_in_1, dtype=np.float32)
-    eps = np.loadtxt(file_in_2, dtype=np.float32)
+def plot_r_eps(r_est, eps_est, r_exact, eps_exact, file_out=None):
+    r = np.loadtxt(r_exact, dtype=np.float32) if isinstance(r_exact, str) else r_exact.astype(np.float32)
+    eps = np.loadtxt(eps_exact, dtype=np.float32) if isinstance(eps_exact, str) else eps_exact.astype(np.float32)
 
-    r_df = pd.DataFrame(data={'est': mbp.model.state_dict()['r'].numpy(),
+    r_df = pd.DataFrame(data={'est': r_est,
                             'exact': r,
                             'param': 'r'})
-    eps_df = pd.DataFrame(data={'est': mbp.model.state_dict()['eps'].numpy().ravel(),
+    eps_df = pd.DataFrame(data={'est': eps_est.ravel(),
                                 'exact': eps.ravel(),
                                 'param': 'eps'})
 
@@ -39,13 +42,13 @@ def plot_r_eps(mbp, file_in_1, file_in_2, file_out=None):
     if file_out:
         r_eps.get_figure().savefig(file_out)
 
-# Plot predicted vs true steady states in test set
-def plot_ss_test(mbp, file_out=None):
-    x_df = mbp.predict_val()
-    x_df['value'] = 'x'
+# Plot predicted vs true steady states in test set, taking a data frame with predicted 
+# and true values (e.g. model.predict_val())
+def plot_ss_test(df, file_out=None):
+    df['value'] = 'x'
     
     plt.figure()
-    ss_test = sns.relplot(data=x_df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)
+    ss_test = sns.relplot(data=df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)
     plt.plot(np.linspace(0.0, 2.5), np.linspace(0.0, 2.5), color='g')
 
     def annotate(data, **kwargs):
@@ -56,7 +59,6 @@ def plot_ss_test(mbp, file_out=None):
         
     ss_test.map_dataframe(annotate)
     plt.title("Predicted and true steady states in test set \nacross all conditions")
-    # plt.show()
 
     if file_out:
         ss_test.savefig(file_out)
@@ -64,8 +66,8 @@ def plot_ss_test(mbp, file_out=None):
 # Plot train and validation loss across folds (for leave-one-species-out CV)
 def plot_loss_folds(df_loss, file_out=None):
     plt.figure()
-    g_loss = sns.relplot(x='epoch', y='value', hue='Loss', col='fold',  
-                        data=df_loss.melt(id_vars=['fold', 'epoch'], 
+    g_loss = sns.relplot(x='epoch', y='value', hue='Loss', col='leftout_species',  
+                        data=df_loss.melt(id_vars=['leftout_species', 'epoch'], 
                                         value_vars=['loss_train', 'loss_val'], 
                                         var_name='Loss'),
                         kind='line', col_wrap=5, height=2, linewidth=2)
@@ -75,7 +77,7 @@ def plot_loss_folds(df_loss, file_out=None):
         g_loss.savefig(file_out)
 
 # Plot predicted and true steady states for each left-out test set (for leave-one-species-out CV)
-def plot_ss_folds(df_ss, file_out=None):
+def plot_ss_folds(val_pred, file_out=None):
     def annotate(x, y, **kwargs):
         plt.axline((0, 0), (1, 1), color='k', linestyle='dashed')
         r, _ = stats.pearsonr(x, y)
@@ -83,12 +85,25 @@ def plot_ss_folds(df_ss, file_out=None):
                      xycoords=plt.gca().get_yaxis_transform())
 
     plt.figure()    
-    g_ss = sns.FacetGrid(df_ss, col='fold', col_wrap=4, height=2)
+    g_ss = sns.FacetGrid(val_pred, col='leftout_species', col_wrap=4, height=2)
     g_ss.map(sns.scatterplot, 'pred', 'true')
     g_ss.map(annotate, 'pred', 'true')
 
     if file_out:
         g_ss.savefig(file_out)
+
+# Barplot of correlations between predicted and true steady states for each left-out test set 
+# (for leave-one-species-out CV)
+def barplot_pcorr_folds(val_pred, file_out=None):
+    vg = val_pred.groupby('leftout_species', group_keys=True)
+    pcorr = vg.apply(lambda x: stats.pearsonr(x.pred, x.true)[0])
+
+    plt.figure()
+    ax = pcorr.plot(kind='bar',\
+                    title="Pearson correlation between\npredicted and true steady states")
+
+    if file_out:
+        ax.figure.savefig(file_out)
 
 # Plot predicted and true states at test time points (for time series data)
 def plot_pred_ts(mbp, file_out=None):
