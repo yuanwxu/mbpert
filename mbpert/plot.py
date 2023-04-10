@@ -63,11 +63,11 @@ def plot_ss_test(df, file_out=None):
     if file_out:
         ss_test.savefig(file_out)
 
-# Plot train and validation loss across folds (for leave-one-species-out CV)
-def plot_loss_folds(df_loss, file_out=None):
+# Plot train and validation loss across folds
+def plot_loss_folds(df_loss, facet_by, file_out=None):
     plt.figure()
-    g_loss = sns.relplot(x='epoch', y='value', hue='Loss', col='leftout_species',  
-                        data=df_loss.melt(id_vars=['leftout_species', 'epoch'], 
+    g_loss = sns.relplot(x='epoch', y='value', hue='Loss', col=facet_by,  
+                        data=df_loss.melt(id_vars=[facet_by, 'epoch'], 
                                         value_vars=['loss_train', 'loss_val'], 
                                         var_name='Loss'),
                         kind='line', col_wrap=5, height=2, linewidth=2)
@@ -105,29 +105,29 @@ def barplot_pcorr_folds(val_pred, file_out=None):
     if file_out:
         ax.figure.savefig(file_out)
 
-# Plot predicted and true states at test time points (for time series data)
-def plot_pred_ts(mbp, file_out=None):
-    df_ts = mbp.predict_val_ts()
-
+# Plot predicted and true states, by test time points or by group (for time series data with multiple groups)
+# If by group, then predictions at all time points are merged for each hold-out group.
+def plot_ts_error(val_pred, facet_by, color_by=None, file_out=None):
     def annotate(x, y, **kwargs):
-        plt.axline((0, 0), (1, 1), color='k', linestyle='dashed')
+        plt.axline((0, 0), (1, 1), color='darkgrey', linestyle='dashed')
         r, _ = stats.pearsonr(x, y)
         plt.annotate(f"r = {r:.3f}", xy=(0.7, 0.1), 
                      xycoords=plt.gca().get_yaxis_transform())
     
     plt.figure()
-    g_ts = sns.FacetGrid(df_ts, col='t', col_wrap=4, height=2)
-    g_ts.map(sns.scatterplot, 'pred', 'true')
+    g_ts = sns.FacetGrid(val_pred, col=facet_by, col_wrap=4, height=2.5, aspect=1)
+    g_ts.map_dataframe(sns.scatterplot, x='pred', y='true', hue=color_by,\
+                       palette=sns.color_palette('flare', as_cmap=True) if color_by else None)
     g_ts.map(annotate, 'pred', 'true')
 
     if file_out:
         g_ts.savefig(file_out)
 
 # Plot predicted and true trajectory for each hold-out group (for time series data with multiple groups)
-def plot_traj_groups(df_val, file_out=None):
+def plot_traj_groups(val_pred, file_out=None):
     plt.figure()
-    trajgps = sns.relplot(x='t', y='value', hue='key', row='species_id', col='group',  
-                        data=df_val.melt(id_vars=['t', 'group', 'species_id'], 
+    trajgps = sns.relplot(x='t', y='value', hue='key', row='species_id', col='leftout_group',  
+                        data=val_pred.melt(id_vars=['t', 'leftout_group', 'species_id'], 
                                         value_vars=['pred', 'true'], 
                                         var_name='key'),
                         kind='line', height=2, linewidth=2)

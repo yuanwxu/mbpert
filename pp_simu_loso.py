@@ -86,7 +86,7 @@ if __name__ == '__main__':
     val_pred.to_csv(OUT_DIR + "val_pred.csv")
   
     # Plot train and validation loss across folds
-    plot_loss_folds(df_loss, file_out=OUT_DIR + "loss.png")
+    plot_loss_folds(df_loss, facet_by="leftout_species", file_out=OUT_DIR + "loss.png")
 
     # Plot predicted and true steady states for each left-out test set
     plot_ss_folds(val_pred, file_out=OUT_DIR + "ss_error_all_folds.png")
