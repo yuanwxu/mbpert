@@ -19,7 +19,10 @@ if __name__ == '__main__':
     # For microbiome time-series data with multiple groups/individuals, 
     # train with all but the left-out group.
     # Simulate microbiome time series data from 5 groups: 
-    # 10 species, sampling times span 180 days with an interval of 5 days
+    # 10 species, sampling times span 180 days 
+    # One group has full sampling frequency (every 5 days), one group 
+    # has half sampling frequency (every 10 days), the other 3 groups 
+    # have minimal sampling frequency (every 20 days)
     # One type of perturbation applied at day 25, 55, 90 and 125
     # Initial states randomly sampled for each group
     n_species = 10
@@ -29,18 +32,19 @@ if __name__ == '__main__':
     P = np.zeros((T+1, 1))
     P[np.array([25, 55, 90, 125])] = 1
     samp_days = np.arange(0, T+1, 5)
-    t = INTEGRATE_END * samp_days / T
     # Metadata with two columns: group id and measurement time in days, 
-    gids = np.repeat(range(1, n_groups+1), len(samp_days))
-    meta = np.column_stack((gids, np.tile(samp_days, n_groups)))   
-
+    samp_days_all = [samp_days, samp_days[::2], samp_days[::4], samp_days[::4], samp_days[::4]]
+    gids = np.repeat(range(1, n_groups+1), [len(s) for s in samp_days_all])
+    meta = np.column_stack((gids, np.hstack(samp_days_all)))
+    t = [INTEGRATE_END * s / T for s in samp_days_all]
+    
     # Simulate trajectory for each group
     rng = np.random.default_rng(123)    
     X = []
     for i in range(n_groups):
         x0 = rng.lognormal(size=n_species)
         sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T), dense_output=True)
-        z = sol.sol(t)
+        z = sol.sol(t[i])
         X.append(z)
     X = np.concatenate(X, axis=1)
 

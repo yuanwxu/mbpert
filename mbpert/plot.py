@@ -79,7 +79,7 @@ def plot_loss_folds(df_loss, facet_by, file_out=None):
 # Plot predicted and true steady states for each left-out test set (for leave-one-species-out CV)
 def plot_ss_folds(val_pred, file_out=None):
     def annotate(x, y, **kwargs):
-        plt.axline((0, 0), (1, 1), color='k', linestyle='dashed')
+        plt.axline((0, 0), (1, 1), color='darkgrey', linestyle='dashed')
         r, _ = stats.pearsonr(x, y)
         plt.annotate(f"r = {r:.3f}", xy=(0.7, 0.1), 
                      xycoords=plt.gca().get_yaxis_transform())
