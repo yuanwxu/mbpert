@@ -11,7 +11,8 @@ from mbpert.odesolver import RK45
 # End point of integration, assume integration starts at t = 0. Used to rescale
 # the actual observation time point in days. A larger value should be used if
 # the observed time series are steady state abundances
-INTEGRATE_END = 30
+# INTEGRATE_END = 30
+INTEGRATE_END = 10 # for MTIST
 
 def glvp2(t, x, r, A, eps, P, T):
     """Define generalized lotka-volterra dynamic system with time-dependent
@@ -36,7 +37,11 @@ class MBPertTS(nn.Module):
   def __init__(self, n_species, P):
     super().__init__()
     self.r = nn.Parameter(torch.rand((n_species, )))
-    self.eps = nn.Parameter(torch.randn(n_species, P.shape[1]))
+
+    if torch.any(P):
+      self.eps = nn.Parameter(torch.randn(n_species, P.shape[1]))
+    else: # no perturbations, so eps not a Parameter any more
+      self.eps = torch.zeros(n_species, P.shape[1])
 
     # Proper initialization of interaction matrix for stability
     self.A = 1 / (2 * n_species**(0.5)) * torch.randn(n_species, n_species)
@@ -46,7 +51,7 @@ class MBPertTS(nn.Module):
     # self.A[mask] = 1 / (2 * n_species**(0.5)) * torch.randn(n_species**2 - n_species, requires_grad=True)
     # self.A = nn.Parameter(self.A)
 
-    self.P = P # time-dependent perturbation matrix
+    self.P = P.to('cuda') if torch.cuda.is_available() else P # time-dependent perturbation matrix
     self.T = P.shape[0] - 1 # max days of the experiment
 
   def forward(self, x, t):

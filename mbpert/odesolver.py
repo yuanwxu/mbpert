@@ -5,6 +5,9 @@ SAFETY = 0.9
 MIN_FACTOR = 0.2  # Minimum allowed decrease in a step size.
 MAX_FACTOR = 10  # Maximum allowed increase in a step size.
 
+if torch.cuda.is_available():
+    torch.set_default_tensor_type(torch.cuda.FloatTensor)
+
 class RK45():
   """explicit Runge-Kutta method of order 5(4)"""
 
@@ -136,8 +139,8 @@ class RK45():
     while self.t < self.tf:
       self._step_impl()
 
-    if self.f.abs().mean().item() > 1e-3:
-      print(f'Mean absolute derivative at t={self.t}: {self.f.abs().mean().item()}')
+    # if self.f.abs().mean().item() > 1e-3:
+      # print(f'Mean absolute derivative at t={self.t}: {self.f.abs().mean().item()}')
       # print("ODE solver did not converge to steady state solution in the given time range.")
 
     return self.y
