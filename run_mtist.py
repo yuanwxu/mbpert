@@ -1,3 +1,5 @@
+import pickle
+import asyncio # for parallelizing loop over datasets
 import numpy as np
 import pandas as pd
 import torch
@@ -60,10 +62,16 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
     # Model training
     THRESH = 1e-5 # threshold for setting a_ij to 0 in the case of 1-norm 
                   # regularization
-    N_EPOCHS = 400 # if n_species >= 10 else 200
+    N_EPOCHS = 400 # this will be max number of epochs if `stop_training_early` is set
+                   # in mbp.train
     mbp = MBP(mbpertTS, loss_fn_ts, optimizer, ts_mode=True)
     mbp.set_loaders(dataloader)
-    mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=did*50+1 if set_seed else None) 
+    mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=did*50+1 if set_seed else None,\
+              stop_training_early={'epochs':10, 'eps':0.05}) 
+
+    if mbp.total_epochs < N_EPOCHS:
+        print(f"Model for MTIST dataset {did} stopped early at epoch {mbp.total_epochs}\n"
+              f"dut to stopping criterion set in mbp.train")
 
     A_est = mbp.model.state_dict()['A'].cpu().numpy()
     r_est = mbp.model.state_dict()['r'].cpu().numpy()
@@ -77,6 +85,13 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
     return A_est, r_est
 
 
+def background(f):
+    def wrapped(*args, **kwargs):
+        return asyncio.get_event_loop().run_in_executor(None, f, *args, **kwargs)
+
+    return wrapped
+    
+
 if __name__ == '__main__':
     # Test MBPert on MTIST datasets (a suite of realisticly simulated human gut
     # microbiome time series datasets for testing new inference algorithms)
@@ -87,14 +102,36 @@ if __name__ == '__main__':
 
     es_score_all = {} # dict mapping dataset id to the calculated ES score
     inferred_aij_all = {} # dict mapping dataset id to the inferred A matrix
-    for did in range(0, 2): # 648
+
+    @background
+    def score_inferred_dataset(did, gts):
         gt = gts[did].replace('gt', 'aij')
         true_aij = np.loadtxt(DATA_DIR + f"ground_truths/interaction_coefficients/{gt}.csv", delimiter=',')
         inferred_aij, _ = infer_from_did_mbpert(did)
         es_score_all[did] = mtist_es_score(true_aij, inferred_aij)
         inferred_aij_all[did] = inferred_aij
 
-    print(es_score_all)
+    loop = asyncio.get_event_loop()                                              
+    looper = asyncio.gather(*[score_inferred_dataset(i, gts) for i in range(0, 648)])
+    results = loop.run_until_complete(looper) 
+
+    #for did in range(0, 648): 
+    #    gt = gts[did].replace('gt', 'aij')
+    #    true_aij = np.loadtxt(DATA_DIR + f"ground_truths/interaction_coefficients/{gt}.csv", delimiter=',')
+    #    inferred_aij, _ = infer_from_did_mbpert(did)
+    #    es_score_all[did] = mtist_es_score(true_aij, inferred_aij)
+    #    inferred_aij_all[did] = inferred_aij
+
+    # Save ES scores
+    es_score_df = pd.DataFrame(es_score_all, index=['ES_score']).T #.reset_index(names='did')
+    es_score_df.reset_index().rename(columns={'index':'did'}).to_csv(OUT_DIR + "es_score.csv", index=False)
+
+    # Save inferred A matrix
+    with open(OUT_DIR + 'inferred_aij_dict.pkl', 'wb') as f:
+        pickle.dump(inferred_aij_all, f)
+            
+    # with open(OUT_DIR + 'inferred_aij_dict.pkl', 'rb') as f:
+    #     inferred_aij_all = pickle.load(f)
 
    
     # Load checkpoint

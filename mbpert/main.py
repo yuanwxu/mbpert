@@ -161,7 +161,14 @@ class MBP(object):
         torch.manual_seed(seed)
         np.random.seed(seed)
     
-    def train(self, n_epochs, seed=42, verbose=False):
+    def train(self, n_epochs, seed=42, verbose=False, stop_training_early=None):
+        # Even when no validation set is present, there is an option to `stop_training_early`
+        # by specifying a dictionary with keys `epochs` and `eps`, where
+        # for example `stop_training_early["epochs"] = 10` and
+        # `stop_training_early["eps"] = 0.05` means that training will stop if the
+        # ratio of reduction in loss over successive epoches is close to 1: 
+        # |(redution in loss in prev 10 epochs) / (reduction in loss in current 10 epochs) - 1| < eps
+
         # To ensure reproducibility of the training process
         if seed:
             self.set_seed(seed)
@@ -199,6 +206,18 @@ class MBP(object):
                     print(f'Epoch: {epoch + 1} | Loss train: {loss:.4f} ')
                 else:
                     print(f'Epoch: {epoch + 1} | Loss train/test: {loss:.4f}/{val_loss:.4f} ')
+
+            if isinstance(stop_training_early, dict):
+                if (epoch > stop_training_early['epochs']) and\
+                     (epoch % stop_training_early['epochs'] == 0):
+                    istart = epoch - 2 * stop_training_early['epochs']
+                    imid = epoch - stop_training_early['epochs']
+                    iend = epoch
+                    r1 = max(self.losses[istart:imid]) - min(self.losses[istart:imid])
+                    r2 = max(self.losses[imid:iend]) - min(self.losses[imid:iend])
+                    if (r1 < (1+stop_training_early['eps'])*r2) and\
+                        (r1 > (1-stop_training_early['eps'])*r2):
+                        break
 
         if self.writer:
             # Closes the writer
