@@ -165,9 +165,9 @@ class MBP(object):
         # Even when no validation set is present, there is an option to `stop_training_early`
         # by specifying a dictionary with keys `epochs` and `eps`, where
         # for example `stop_training_early["epochs"] = 10` and
-        # `stop_training_early["eps"] = 0.05` means that training will stop if the
-        # ratio of reduction in loss over successive epoches is close to 1: 
-        # |(redution in loss in prev 10 epochs) / (reduction in loss in current 10 epochs) - 1| < eps
+        # `stop_training_early["eps"] = 0.05` means that training will stop if there is no
+        # significant reduction in loss between previous x epoches and previous 2*x epochs
+        # |(redution in loss in prev 10 epochs) / (reduction in loss in prev 20 epochs) - 1| < eps
 
         # To ensure reproducibility of the training process
         if seed:
@@ -213,7 +213,7 @@ class MBP(object):
                     istart = epoch - 2 * stop_training_early['epochs']
                     imid = epoch - stop_training_early['epochs']
                     iend = epoch
-                    r1 = max(self.losses[istart:imid]) - min(self.losses[istart:imid])
+                    r1 = max(self.losses[istart:iend]) - min(self.losses[istart:iend])
                     r2 = max(self.losses[imid:iend]) - min(self.losses[imid:iend])
                     if (r1 < (1+stop_training_early['eps'])*r2) and\
                         (r1 > (1-stop_training_early['eps'])*r2):

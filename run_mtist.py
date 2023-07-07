@@ -1,5 +1,5 @@
 import pickle
-import asyncio # for parallelizing loop over datasets
+import sys
 import numpy as np
 import pandas as pd
 import torch
@@ -83,16 +83,15 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
         mbp.save_checkpoint(OUT_DIR + f"mbp_mtist_dataset_{did}.pth")
 
     return A_est, r_est
-
-
-def background(f):
-    def wrapped(*args, **kwargs):
-        return asyncio.get_event_loop().run_in_executor(None, f, *args, **kwargs)
-
-    return wrapped
     
 
 if __name__ == '__main__':
+    # Get job array index for slurm job array
+    TASK_ID = int(sys.argv[1])
+    # Get max job array index set in slurm script: --array=1-TASK_MAX
+    # to be used to partition the datasets
+    TASK_MAX = int(sys.argv[2])
+
     # Test MBPert on MTIST datasets (a suite of realisticly simulated human gut
     # microbiome time series datasets for testing new inference algorithms)
 
@@ -103,31 +102,23 @@ if __name__ == '__main__':
     es_score_all = {} # dict mapping dataset id to the calculated ES score
     inferred_aij_all = {} # dict mapping dataset id to the inferred A matrix
 
-    @background
-    def score_inferred_dataset(did, gts):
+    num_datasets = max(gts.keys()) + 1 # 648
+    par = list(range(0, num_datasets, int(num_datasets/TASK_MAX)))
+    par.append(num_datasets)
+
+    for did in range(*par[(TASK_ID-1):(TASK_ID+1)]):  # loop over partition defined by current TASK_ID
         gt = gts[did].replace('gt', 'aij')
         true_aij = np.loadtxt(DATA_DIR + f"ground_truths/interaction_coefficients/{gt}.csv", delimiter=',')
         inferred_aij, _ = infer_from_did_mbpert(did)
         es_score_all[did] = mtist_es_score(true_aij, inferred_aij)
         inferred_aij_all[did] = inferred_aij
 
-    loop = asyncio.get_event_loop()                                              
-    looper = asyncio.gather(*[score_inferred_dataset(i, gts) for i in range(0, 648)])
-    results = loop.run_until_complete(looper) 
-
-    #for did in range(0, 648): 
-    #    gt = gts[did].replace('gt', 'aij')
-    #    true_aij = np.loadtxt(DATA_DIR + f"ground_truths/interaction_coefficients/{gt}.csv", delimiter=',')
-    #    inferred_aij, _ = infer_from_did_mbpert(did)
-    #    es_score_all[did] = mtist_es_score(true_aij, inferred_aij)
-    #    inferred_aij_all[did] = inferred_aij
-
     # Save ES scores
     es_score_df = pd.DataFrame(es_score_all, index=['ES_score']).T #.reset_index(names='did')
-    es_score_df.reset_index().rename(columns={'index':'did'}).to_csv(OUT_DIR + "es_score.csv", index=False)
+    es_score_df.reset_index().rename(columns={'index':'did'}).to_csv(OUT_DIR + f"es_score_task{TASK_ID}.csv", index=False)
 
     # Save inferred A matrix
-    with open(OUT_DIR + 'inferred_aij_dict.pkl', 'wb') as f:
+    with open(OUT_DIR + f'inferred_aij_dict_task{TASK_ID}.pkl', 'wb') as f:
         pickle.dump(inferred_aij_all, f)
             
     # with open(OUT_DIR + 'inferred_aij_dict.pkl', 'rb') as f:
@@ -138,5 +129,5 @@ if __name__ == '__main__':
     # n_species = 10
     # mbpertTS = MBPertTS(n_species, P)
     # mbp = MBP(mbpertTS, loss_fn_ts, optimizer, ts_mode=True)
-    # mbp.load_checkpoint(OUT_DIR + "sp_simu_multi_starts.pth")
+    # mbp.load_checkpoint(OUT_DIR + "mbp_mtist_dataset_643.pth")
     # mbp.plot_losses()
