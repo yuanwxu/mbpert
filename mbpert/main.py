@@ -71,8 +71,8 @@ class MBP(object):
             # Step 1 - forward pass
             if self.ts_mode:
                 yhat = []
-                for x0, t in zip(*x):
-                    y_t = self.model(x0, t)
+                for x0, t1, t2 in zip(*x):
+                    y_t = self.model(x0, t1, t2)
                     yhat.append(y_t)
 
                 yhat = torch.cat(yhat, dim=0)
@@ -100,8 +100,8 @@ class MBP(object):
 
             if self.ts_mode:
                 yhat = []
-                for x0, t in zip(*x):
-                    y_t = self.model(x0, t)
+                for x0, t1, t2 in zip(*x):
+                    y_t = self.model(x0, t1, t2)
                     yhat.append(y_t)
 
                 yhat = torch.cat(yhat, dim=0)
@@ -131,10 +131,11 @@ class MBP(object):
         for data in data_loader:
             if self.ts_mode: # sequential perturbation
                 # Unpack input batch
-                (x0_batch, t_batch), y_batch = data
+                (x0_batch, t1_batch, t2_batch), y_batch = data
                 x0_batch = x0_batch.to(self.device)
-                t_batch = t_batch.to(self.device)
-                x_batch = (x0_batch, t_batch)
+                t1_batch = t1_batch.to(self.device)
+                t2_batch = t2_batch.to(self.device)
+                x_batch = (x0_batch, t1_batch, t2_batch)
                 y_batch = torch.ravel(y_batch).to(self.device)
 
             else: # parallel perturbation
@@ -262,15 +263,16 @@ class MBP(object):
         # Detaches it, brings it to CPU and back to Numpy
         return y_hat_tensor.detach().cpu().numpy()
 
-    def predict_ts(self, x0, t):
+    def predict_ts(self, x0, t1, t2):
         if not self.ts_mode:
             return None
 
         self.model.eval()
         # Takes numpy input (initial species absolute abundances and final time point t)
         x0_tensor = torch.as_tensor(x0).float()
-        t_tensor = torch.as_tensor(t).float()
-        y_hat_tensor = self.model(x0_tensor.to(self.device), t_tensor.to(self.device))
+        t1_tensor = torch.as_tensor(t1).float()
+        t2_tensor = torch.as_tensor(t2).float()
+        y_hat_tensor = self.model(x0_tensor.to(self.device), t1_tensor.to(self.device), t2_tensor.to(self.device))
         self.model.train()
 
         return y_hat_tensor.detach().cpu().numpy()
@@ -317,11 +319,11 @@ class MBP(object):
         df_val = []
         with torch.no_grad():
             for testdata in self.val_loader:
-                (x0_batch, t_batch), y_batch = testdata
-                for x0, t, y in zip(x0_batch, t_batch, y_batch):
-                    y_t = self.predict_ts(x0, t)
+                (x0_batch, t1_batch, t2_batch), y_batch = testdata
+                for x0, t1, t2, y in zip(x0_batch, t1_batch, t2_batch, y_batch):
+                    y_t = self.predict_ts(x0, t1, t2)
                     pred_val['species_id'] = range(len(y_t))
-                    pred_val['t'] = t.item()
+                    pred_val['t'] = t2.item()
                     pred_val['pred'] = y_t
                     pred_val['true'] = y
                     df_val.append(pd.DataFrame(pred_val))

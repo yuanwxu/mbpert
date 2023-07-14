@@ -54,14 +54,14 @@ class MBPertTS(nn.Module):
     self.P = P.to('cuda') if torch.cuda.is_available() else P # time-dependent perturbation matrix
     self.T = P.shape[0] - 1 # max days of the experiment
 
-  def forward(self, x, t):
-    self.solver = RK45(glvp2, [0,t], args=(self.r, self.A, self.eps, self.P, self.T))
+  def forward(self, x, t1, t2):
+    self.solver = RK45(glvp2, [t1,t2], args=(self.r, self.A, self.eps, self.P, self.T))
     return self.solver.solve(x)
 
 # Custom Dataset
 
 # Custome Dataset to handle each data unit. Here each data unit corresponds to
-# one time slice: initial state at t = 0 and output state at t = t
+# one time slice: initial state at t = t' and output state at t = t'+1
 class MBPertTSDataset(Dataset):
   def __init__(self, X, P, meta, transform=None, target_transform=None):
     """X --- (n_species, n_t) Microbiome time series data X_{i} giving species i's abundance trajectory.
@@ -109,23 +109,19 @@ class MBPertTSDataset(Dataset):
     # from the second to the last group. But this allows us to continue using len(self.tobs) - 1
     # instead of len(self.tobs) - self.n_groups in defining the number of instances in the Dataset, 
     # which works for single group case. 
-    if self.gids[idx + 1] != gid: 
-      start = idx + 1
-      x0 = torch.from_numpy(self.X[:, start])
-      t = self.tobs[start + 1] * INTEGRATE_END / self.T
-      xt = torch.from_numpy(self.X[:, start + 1])
-    else:
-      start = np.argmax(self.gids == gid)
-      x0 = torch.from_numpy(self.X[:, start])
-      t = self.tobs[idx + 1] * INTEGRATE_END / self.T
-      xt = torch.from_numpy(self.X[:, idx + 1])
-
+    start = idx + 1 if self.gids[idx + 1] != gid else idx
+    
+    xtp = torch.from_numpy(self.X[:, start])  # state at t'
+    xtpp1 = torch.from_numpy(self.X[:, start + 1]) # state at t' + 1
+    t1 = self.tobs[start] * INTEGRATE_END / self.T # integration time at t' 
+    t2 = self.tobs[start + 1] * INTEGRATE_END / self.T # integration time at t' + 1
+    
     if self.transform:
-      x0 = self.transform(x0)
+      xtp = self.transform(xtp)
     if self.target_transform:
-      xt = self.target_transform(xt)
+      xtpp1 = self.target_transform(xtpp1)
 
-    return (x0, t), xt
+    return (xtp, t1, t2), xtpp1
 
 
 
