@@ -19,9 +19,9 @@ def load_mtist_dataset(did):
     # Species temporal dynamics array of shape (n_species, n_groups * samples_per_group)
     X = df.loc[:, df.columns.str.contains("species_")].to_numpy().T
 
-    # Convert 'time' column in mtist dataset to the unit of days assuming 25 days duration
-    # as stated in the mtist paper
-    samp_days = 25 * df['time']/max(df['time'])
+    # Treat 'time' column in mtist dataset as equivalent to the number of days into the
+    # experiment
+    samp_days = df['time']
 
     # Meta-data required for MBPert
     n_groups, samp_per_group = df['n_timeseries'][0], df['n_timepoints'][0]
@@ -33,7 +33,7 @@ def load_mtist_dataset(did):
 
 def infer_from_did_mbpert(did, set_seed=True, save_model=False):
     X, meta = load_mtist_dataset(did)
-    P = np.zeros((25+1, 1)) 
+    P = np.zeros((30+1, 1)) # at least as large as the max time in the 'time' column in mtist master dataset
     
     # Inferenc with MBPert
     n_species = X.shape[0]
@@ -47,27 +47,22 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
 
     # Notice no `eps` term here in the loss since no perturbation used
     def loss_fn_ts(y_hat, y, mbpertTS):
-        # Set reg loss for the interaction matrix to be 1-norm if >= 10 species
-        od = 1 if mbpertTS.A.shape[0] >= 10 else 2
-
         # Compute loss (MSE + reg)
         criterion = torch.nn.MSELoss()
         loss = criterion(y_hat, y)
-        loss = loss + reg_loss_interaction(mbpertTS.A, order=od) + \
-                        reg_loss_r(mbpertTS.r)
+        loss = loss + reg_loss_interaction(mbpertTS.A, reg_lambda=1e-4) + \
+                        reg_loss_r(mbpertTS.r, reg_lambda=1e-5)
         return loss
-    
-    optimizer = torch.optim.Adam(mbpertTS.parameters())
 
+    optimizer = torch.optim.Adam(mbpertTS.parameters(), lr=0.01)
+   
     # Model training
-    THRESH = 1e-5 # threshold for setting a_ij to 0 in the case of 1-norm 
-                  # regularization
     N_EPOCHS = 400 # this will be max number of epochs if `stop_training_early` is set
                    # in mbp.train
     mbp = MBP(mbpertTS, loss_fn_ts, optimizer, ts_mode=True)
     mbp.set_loaders(dataloader)
     mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=did*50+1 if set_seed else None,\
-              stop_training_early={'epochs':10, 'eps':0.05}) 
+              stop_training_early={'epochs':10, 'eps':0.01}) 
 
     if mbp.total_epochs < N_EPOCHS:
         print(f"Model for MTIST dataset {did} stopped early at epoch {mbp.total_epochs}\n"
@@ -75,9 +70,6 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
 
     A_est = mbp.model.state_dict()['A'].cpu().numpy()
     r_est = mbp.model.state_dict()['r'].cpu().numpy()
-
-    if n_species >= 10:
-        A_est[np.abs(A_est) < THRESH] = 0
 
     if save_model:
         mbp.save_checkpoint(OUT_DIR + f"mbp_mtist_dataset_{did}.pth")
@@ -103,6 +95,11 @@ if __name__ == '__main__':
     inferred_aij_all = {} # dict mapping dataset id to the inferred A matrix
 
     num_datasets = max(gts.keys()) + 1 # 648
+
+    if num_datasets % TASK_MAX != 0:
+        raise ValueError(f"Number of datasets ({num_datasets}) is not divisible by"
+                         f" number of tasks ({TASK_MAX}) in array job.")
+
     par = list(range(0, num_datasets, int(num_datasets/TASK_MAX)))
     par.append(num_datasets)
 

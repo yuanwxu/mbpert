@@ -7,12 +7,9 @@ import numpy as np
 from torch.utils.data import Dataset
 from mbpert.odesolver import RK45
 
+# For debuging OOM issue when changing initialization of A to be N(0,1)
+# import torch.autograd.profiler as profiler
 
-# End point of integration, assume integration starts at t = 0. Used to rescale
-# the actual observation time point in days. A larger value should be used if
-# the observed time series are steady state abundances
-# INTEGRATE_END = 30
-INTEGRATE_END = 10 # for MTIST
 
 def glvp2(t, x, r, A, eps, P, T):
     """Define generalized lotka-volterra dynamic system with time-dependent
@@ -25,9 +22,7 @@ def glvp2(t, x, r, A, eps, P, T):
        P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
        T --- duration of the observation in days, used to scale t
     """
-    assert t <= INTEGRATE_END
-
-    out = x * (r + A @ x + eps @ P[int(T * t / INTEGRATE_END)])
+    out = x * (r + A @ x + eps @ P[int(t)])
     return out
 
 
@@ -55,6 +50,7 @@ class MBPertTS(nn.Module):
     self.T = P.shape[0] - 1 # max days of the experiment
 
   def forward(self, x, t1, t2):
+    # with profiler.record_function("RK45"):
     self.solver = RK45(glvp2, [t1,t2], args=(self.r, self.A, self.eps, self.P, self.T))
     return self.solver.solve(x)
 
@@ -113,8 +109,9 @@ class MBPertTSDataset(Dataset):
     
     xtp = torch.from_numpy(self.X[:, start])  # state at t'
     xtpp1 = torch.from_numpy(self.X[:, start + 1]) # state at t' + 1
-    t1 = self.tobs[start] * INTEGRATE_END / self.T # integration time at t' 
-    t2 = self.tobs[start + 1] * INTEGRATE_END / self.T # integration time at t' + 1
+
+    t1 = self.tobs[start] # integration time at t' 
+    t2 = self.tobs[start + 1] # integration time at t' + 1
     
     if self.transform:
       xtp = self.transform(xtp)
