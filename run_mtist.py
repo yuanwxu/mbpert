@@ -95,6 +95,7 @@ if __name__ == '__main__':
     inferred_aij_all = {} # dict mapping dataset id to the inferred A matrix
 
     num_datasets = max(gts.keys()) + 1 # 648
+    # num_datasets = 54 # oom rerun 100 species datasets
 
     if num_datasets % TASK_MAX != 0:
         raise ValueError(f"Number of datasets ({num_datasets}) is not divisible by"
@@ -103,17 +104,21 @@ if __name__ == '__main__':
     par = list(range(0, num_datasets, int(num_datasets/TASK_MAX)))
     par.append(num_datasets)
 
+    N_RUNS = 100 # number of runs per dataset 
     for did in range(*par[(TASK_ID-1):(TASK_ID+1)]):  # loop over partition defined by current TASK_ID
         gt = gts[did].replace('gt', 'aij')
         true_aij = np.loadtxt(DATA_DIR + f"ground_truths/interaction_coefficients/{gt}.csv", delimiter=',')
-        inferred_aij, _ = infer_from_did_mbpert(did)
-        es_score_all[did] = mtist_es_score(true_aij, inferred_aij)
-        inferred_aij_all[did] = inferred_aij
+        es_score_all[did] = []
+        inferred_aij_all[did] = []
+        for _ in range(N_RUNS):
+            inferred_aij, _ = infer_from_did_mbpert(did, set_seed=False)
+            es_score_all[did].append(mtist_es_score(true_aij, inferred_aij))
+            inferred_aij_all[did].append(inferred_aij)
 
     # Save ES scores
-    es_score_df = pd.DataFrame(es_score_all, index=['ES_score']).T #.reset_index(names='did')
-    es_score_df.reset_index().rename(columns={'index':'did'}).to_csv(OUT_DIR + f"es_score_task{TASK_ID}.csv", index=False)
-
+    es_score_df = pd.DataFrame(es_score_all).melt(var_name='did', value_name='ES_score')
+    es_score_df.to_csv(OUT_DIR + f"es_score_task{TASK_ID}.csv", index=False)
+    
     # Save inferred A matrix
     with open(OUT_DIR + f'inferred_aij_dict_task{TASK_ID}.pkl', 'wb') as f:
         pickle.dump(inferred_aij_all, f)
