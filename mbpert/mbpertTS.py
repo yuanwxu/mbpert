@@ -11,21 +11,6 @@ from mbpert.odesolver import RK45
 # import torch.autograd.profiler as profiler
 
 
-def glvp2(t, x, r, A, eps, P, T):
-    """Define generalized lotka-volterra dynamic system with time-dependent
-       perturbations
-
-       x --- (n_species,) Species (dimensionless) absolute abundances
-       r --- (n_species,) Growth rate
-       A --- (n_species, n_species) Species interaction matrix
-       eps --- (n_species, perts) eps_{ij}: Species i's susceptibility to perturbation j
-       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
-       T --- duration of the observation in days, used to scale t
-    """
-    out = x * (r + A @ x + eps @ P[int(t)])
-    return out
-
-
 # Custom PyTorch module
 
 class MBPertTS(nn.Module):
@@ -51,15 +36,33 @@ class MBPertTS(nn.Module):
 
   def forward(self, x, t1, t2):
     # with profiler.record_function("RK45"):
-    self.solver = RK45(glvp2, [t1,t2], args=(self.r, self.A, self.eps, self.P, self.T))
+    self.solver = RK45(MBPertTS.glvp2, [t1,t2], args=(self.r, self.A, self.eps, self.P, self.T))
     return self.solver.solve(x)
+
+  @staticmethod
+  def glvp2(t, x, r, A, eps, P, T):
+    """Define generalized lotka-volterra dynamic system with time-dependent
+       perturbations
+
+       x --- (n_species,) Species (dimensionless) absolute abundances
+       r --- (n_species,) Growth rate
+       A --- (n_species, n_species) Species interaction matrix
+       eps --- (n_species, K) eps_{ij}: Species i's susceptibility to perturbation j
+       P --- (T+1, K) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
+       T --- duration of the observation in days, used to scale t
+    """
+    out = x * (r + A @ x + eps @ P[int(T * t / MBPertTSDataset.INTEGRATE_END)])
+    return out
 
 # Custom Dataset
 
 # Custome Dataset to handle each data unit. Here each data unit corresponds to
 # one time slice: initial state at t = t' and output state at t = t'+1
 class MBPertTSDataset(Dataset):
-  def __init__(self, X, P, meta, transform=None, target_transform=None):
+
+  INTEGRATE_END = None # End point of numerical integration
+
+  def __init__(self, X, P, meta, scale_integration_time=False, transform=None, target_transform=None):
     """X --- (n_species, n_t) Microbiome time series data X_{i} giving species i's abundance trajectory.
                               The first column is the initial state. For multiple groups, X is a columnwise
                               concatenation of species trajectories of all groups.
@@ -87,6 +90,8 @@ class MBPertTSDataset(Dataset):
     self.gids = self.meta[:, 0]
     self.n_groups = int(max(self.gids))
 
+    MBPertTSDataset.INTEGRATE_END = 30 if scale_integration_time else self.T
+
     self.transform = transform
     self.target_transform = target_transform
 
@@ -110,8 +115,8 @@ class MBPertTSDataset(Dataset):
     xtp = torch.from_numpy(self.X[:, start])  # state at t'
     xtpp1 = torch.from_numpy(self.X[:, start + 1]) # state at t' + 1
 
-    t1 = self.tobs[start] # integration time at t' 
-    t2 = self.tobs[start + 1] # integration time at t' + 1
+    t1 = self.tobs[start] * MBPertTSDataset.INTEGRATE_END / self.T # integration time at t'
+    t2 = self.tobs[start + 1] * MBPertTSDataset.INTEGRATE_END / self.T # integration time at t' + 1
     
     if self.transform:
       xtp = self.transform(xtp)

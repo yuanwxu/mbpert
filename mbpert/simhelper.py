@@ -54,6 +54,26 @@ def pert_mat(n_nodes, combos, n_conds_lst=None, use_seed=True):
     return out
 
 
+# Define GLV dynamics
+def glvp2(t, x, r, A, eps, P, T, integrate_end=None):
+    """Define generalized lotka-volterra dynamic system with time-dependent
+        perturbations
+
+        x --- (n_species,) Species (dimensionless) absolute abundances
+        r --- (n_species,) Growth rate
+        A --- (n_species, n_species) Species interaction matrix
+        eps --- (n_species, K) eps_{ij}: Species i's susceptibility to perturbation j
+        P --- (T+1, K) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
+        T --- duration of the observation in days
+        integrate_end --- end point of numerical integration, used to scale T
+    """
+    if integrate_end is None:
+        integrate_end = T
+
+    out = x * (r + A @ x + eps @ P[int(T * t / integrate_end)])
+    return out
+
+
 def get_ode_params(n_species, p=None, perts=0, seed=None):
     """Get ODE parameters suited for simulation. 
        

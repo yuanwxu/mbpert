@@ -3,16 +3,15 @@ from torch.utils.data import DataLoader
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
-from mbpert.simhelper import get_ode_params
+from mbpert.simhelper import get_ode_params, glvp2
 from mbpert.main import MBP
 from mbpert.loss import reg_loss_interaction, reg_loss_r, reg_loss_eps_mat
-from mbpert.mbpertTS import MBPertTSDataset, MBPertTS, glvp2
-from mbpert.plot import plot_loss_folds, plot_ts_error, plot_traj_groups
+from mbpert.mbpertTS import MBPertTSDataset, MBPertTS
+from mbpert.plot import plot_loss_folds, plot_ts_error, plot_traj_groups, plot_error_A, plot_r_eps
 
 DATA_DIR = "data/sp_simu_logo/"
 OUT_DIR = "output/sp_simu_logo/"
 
-INTEGRATE_END = 30 # define end point of numerical integration
 
 if __name__ == '__main__':
     # Data Generation: Leave-one-group-out
@@ -36,6 +35,9 @@ if __name__ == '__main__':
     samp_days_all = [samp_days, samp_days[::2], samp_days[::4], samp_days[::4], samp_days[::4]]
     gids = np.repeat(range(1, n_groups+1), [len(s) for s in samp_days_all])
     meta = np.column_stack((gids, np.hstack(samp_days_all)))
+    
+    # Rescale sampling days in simulation to a smaller scale used in numerical integration
+    INTEGRATE_END = 30 
     t = [INTEGRATE_END * s / T for s in samp_days_all]
     
     # Simulate trajectory for each group
@@ -43,7 +45,7 @@ if __name__ == '__main__':
     X = []
     for i in range(n_groups):
         x0 = rng.lognormal(size=n_species)
-        sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T), dense_output=True)
+        sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T, INTEGRATE_END), dense_output=True)
         z = sol.sol(t[i])
         X.append(z)
     X = np.concatenate(X, axis=1)
@@ -62,7 +64,12 @@ if __name__ == '__main__':
     np.savetxt(DATA_DIR + "P.txt", P, fmt='%i')
 
     # Number of epochs
-    N_EPOCHS = 100
+    N_EPOCHS = 200
+
+    # Store ODE parameter estimates
+    A_est = np.empty((n_groups, n_species, n_species))
+    r_est = np.empty((n_groups, n_species))
+    eps_est = np.empty((n_groups, *eps.shape))
     
     loss_all_folds = [] # to store loss over epochs across all folds
     val_pred_all_folds = [] # to store prediction on the hold-out groups/folds
@@ -75,21 +82,22 @@ if __name__ == '__main__':
         meta_test_foldi = meta[logivec_i, :]
 
         # Build Dataset and Dataloader for fold/group i
-        trainset = MBPertTSDataset(X_train_foldi, P, meta_train_foldi)
-        testset = MBPertTSDataset(X_test_foldi, P, meta_test_foldi)
+        trainset = MBPertTSDataset(X_train_foldi, P, meta_train_foldi, scale_integration_time=True)
+        testset = MBPertTSDataset(X_test_foldi, P, meta_test_foldi, scale_integration_time=True)
         trainloader = DataLoader(trainset, batch_size=16, shuffle=True)
         testloader = DataLoader(testset, batch_size=16, shuffle=False)
 
         # Model configuration 
+        torch.manual_seed(i*42)
         mbpertTS = MBPertTS(n_species, trainset.P)
 
         def loss_fn_ts(y_hat, y, mbpertTS):
             # Compute loss (MSE + reg)
             criterion = torch.nn.MSELoss()
             loss = criterion(y_hat, y)
-            loss = loss + reg_loss_interaction(mbpertTS.A) + \
-                            reg_loss_r(mbpertTS.r) + \
-                            reg_loss_eps_mat(mbpertTS.eps)
+            loss = loss + reg_loss_interaction(mbpertTS.A, reg_lambda=1e-4) + \
+                            reg_loss_r(mbpertTS.r, reg_lambda=1e-5) + \
+                            reg_loss_eps_mat(mbpertTS.eps, reg_lambda=1e-5)
             return loss
 
         optimizer = torch.optim.Adam(mbpertTS.parameters())
@@ -98,6 +106,11 @@ if __name__ == '__main__':
         mbp = MBP(mbpertTS, loss_fn_ts, optimizer, ts_mode=True)
         mbp.set_loaders(trainloader, testloader)
         mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=i*51) 
+
+        # Record estmated ODE parameters for each fold
+        A_est[i-1] = mbp.model.state_dict()['A'].numpy()
+        r_est[i-1] = mbp.model.state_dict()['r'].numpy()
+        eps_est[i-1] = mbp.model.state_dict()['eps'].numpy()
 
         # Record loss and prediction on the hold-out group i
         loss_df = pd.DataFrame({'epoch': range(mbp.total_epochs),
@@ -115,6 +128,10 @@ if __name__ == '__main__':
     val_pred = pd.concat(val_pred_all_folds)
 
     # Save results
+    np.save(OUT_DIR + "A_est", A_est)
+    np.save(OUT_DIR + "r_est", r_est)
+    np.save(OUT_DIR + "eps_est", eps_est)
+
     df_loss.to_csv(OUT_DIR + "loss.csv")
     val_pred.to_csv(OUT_DIR + "val_pred.csv")
 
@@ -123,6 +140,11 @@ if __name__ == '__main__':
 
     # Plot predicted and true states for each hold-out group, merging all time points
     plot_ts_error(val_pred, facet_by="leftout_group", file_out=OUT_DIR + "ts_error_logo.png")
+
+    # Plot exact and estimated parameters averaged over all folds
+    plot_error_A(A_est.mean(axis=0), A, file_out=OUT_DIR + "A_error_heatmap.png")
+    plot_r_eps(r_est.mean(axis=0), eps_est.mean(axis=0), r, eps,\
+               file_out=OUT_DIR + "r_eps_error.png")
 
     # Predicted and true species dynamics for each hold-out group
     # plot_traj_groups(val_pred)

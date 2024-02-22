@@ -3,16 +3,15 @@ import pandas as pd
 from scipy.integrate import solve_ivp
 import torch
 from torch.utils.data import DataLoader
-from mbpert.simhelper import get_ode_params
+from mbpert.simhelper import get_ode_params, glvp2
 from mbpert.main import MBP
 from mbpert.loss import reg_loss_interaction, reg_loss_r, reg_loss_eps_mat
-from mbpert.mbpertTS import MBPertTSDataset, MBPertTS, glvp2
+from mbpert.mbpertTS import MBPertTSDataset, MBPertTS
 from mbpert.plot import plot_ts_error, plot_error_A, plot_r_eps
 
 DATA_DIR = "data/sp_simu_multi_starts/"
 OUT_DIR = "output/sp_simu_multi_starts/"
 
-INTEGRATE_END = 30 # define end point of numerical integration
 
 if __name__ == '__main__':
     # Data Generation:
@@ -29,10 +28,13 @@ if __name__ == '__main__':
     P[np.array([25, 55, 90, 125])] = 1
     samp_days = np.arange(0, T+1, 5)
     train_stop_idx = int(120/5 + 1)
-    t = INTEGRATE_END * samp_days / T
     # Metadata with two columns: group id and measurement time in days,
     # here we have only one group 
     meta = np.column_stack((np.ones(len(samp_days), dtype=int), samp_days))   
+
+    # Rescale sampling days in simulation to a smaller scale used in numerical integration
+    INTEGRATE_END = 30 
+    t = INTEGRATE_END * samp_days / T
 
     # Save the exact parameters
     np.savetxt(DATA_DIR + "r.txt", r)
@@ -40,7 +42,7 @@ if __name__ == '__main__':
     np.savetxt(DATA_DIR + "eps.txt", eps)
 
     # Train the model N times with different initial species concentrations
-    N = 100
+    N = 200
 
     # Number of epochs per training
     N_EPOCHS = 200
@@ -51,21 +53,21 @@ if __name__ == '__main__':
     eps_est = np.empty((N, *eps.shape))
 
     rng = np.random.default_rng(123)
+    torch.manual_seed(123)
     for i in range(N):
         print(f'\nTraining model {i} with initial states {i}...')
         x0 = rng.lognormal(size=n_species)
-        sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T), dense_output=True)
+        sol = solve_ivp(glvp2, [0, INTEGRATE_END], x0, args = (r, A, eps, P, T, INTEGRATE_END), dense_output=True)
         z = sol.sol(t)
 
         # Build Dataset and Dataloader
         X_train, meta_train = z[:,:train_stop_idx], meta[:train_stop_idx]
-          
-        # For test data need to prepend the initial state
-        X_test = np.column_stack((z[:, 0], z[:, train_stop_idx:]))     
-        meta_test = np.row_stack((meta[0], meta[train_stop_idx:]))
+        # For test data we prepend the last training time point, so prediction on test set will include
+        # the time point corresponding to `train_stop_idx` 
+        X_test, meta_test = z[:, (train_stop_idx-1):], meta[(train_stop_idx-1):]
 
-        trainset = MBPertTSDataset(X_train, P, meta_train) 
-        testset = MBPertTSDataset(X_test, P, meta_test)
+        trainset = MBPertTSDataset(X_train, P, meta_train, scale_integration_time=True) 
+        testset = MBPertTSDataset(X_test, P, meta_test, scale_integration_time=True)
         trainloader = DataLoader(trainset, batch_size=16, shuffle=False)
         testloader = DataLoader(testset, batch_size=16, shuffle=False)
 
@@ -76,9 +78,9 @@ if __name__ == '__main__':
             # Compute loss (MSE + reg)
             criterion = torch.nn.MSELoss()
             loss = criterion(y_hat, y)
-            loss = loss + reg_loss_interaction(mbpertTS.A) + \
-                            reg_loss_r(mbpertTS.r) + \
-                            reg_loss_eps_mat(mbpertTS.eps)
+            loss = loss + reg_loss_interaction(mbpertTS.A, reg_lambda=1e-4) + \
+                            reg_loss_r(mbpertTS.r, reg_lambda=1e-5) + \
+                            reg_loss_eps_mat(mbpertTS.eps, reg_lambda=1e-5)
             return loss
         
         optimizer = torch.optim.Adam(mbpertTS.parameters())
