@@ -7,9 +7,6 @@ import numpy as np
 from torch.utils.data import Dataset
 from mbpert.odesolver import RK45
 
-# For debuging OOM issue when changing initialization of A to be N(0,1)
-# import torch.autograd.profiler as profiler
-
 
 # Custom PyTorch module
 
@@ -32,7 +29,8 @@ class MBPertTS(nn.Module):
     # self.A = nn.Parameter(self.A)
 
     self.P = P.to('cuda') if torch.cuda.is_available() else P # time-dependent perturbation matrix
-    self.T = P.shape[0] - 1 # max days of the experiment
+    self.T = P.shape[0] - 1 # end of actual time unit (e.g. days) of the experiment, 
+                            # assume the starting time is at zero
 
   def forward(self, x, t1, t2):
     # with profiler.record_function("RK45"):
@@ -49,7 +47,7 @@ class MBPertTS(nn.Module):
        A --- (n_species, n_species) Species interaction matrix
        eps --- (n_species, K) eps_{ij}: Species i's susceptibility to perturbation j
        P --- (T+1, K) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
-       T --- duration of the observation in days, used to scale t
+       T --- End of actual time unit
     """
     out = x * (r + A @ x + eps @ P[int(T * t / MBPertTSDataset.INTEGRATE_END)])
     return out
@@ -66,13 +64,12 @@ class MBPertTSDataset(Dataset):
     """X --- (n_species, n_t) Microbiome time series data X_{i} giving species i's abundance trajectory.
                               The first column is the initial state. For multiple groups, X is a columnwise
                               concatenation of species trajectories of all groups.
-       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at day d
+       P --- (T+1, perts) Time-dependent perturbation matrix: P_{dp} = 1 if pert p is applied at time unit d
                            where d = 0, 1, ..., T
        meta --- (n_t, 2) Metadata with two columns, group id and measurement time.
                          The first column is group id in natural order (if all data are from one individual 
                          then this will be a column of 1s), the second column contains actual time units (days)
-                         at which the data was observed, corresponding to columns of X. Typically,
-                         but not always, the initial observation is at day 0.
+                         at which the data was observed, and should be the same size as number of columns in X. 
     """
     self.X = np.loadtxt(X, dtype=np.float32) if isinstance(X, str) else X.astype(np.float32)
     self.P = np.loadtxt(P, dtype=bool) if isinstance(P, str) else P.astype(bool)

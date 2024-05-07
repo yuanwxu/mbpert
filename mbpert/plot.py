@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import torch
 from scipy import stats
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -45,20 +44,18 @@ def plot_r_eps(r_est, eps_est, r_exact, eps_exact, file_out=None):
 # Plot predicted vs true steady states in test set, taking a data frame with predicted 
 # and true values (e.g. model.predict_val())
 def plot_ss_test(df, file_out=None):
-    df['value'] = 'x'
-    
-    plt.figure()
-    ss_test = sns.relplot(data=df, x='pred', y='true', hue='value', palette={'x':'.4'}, legend=False)
-    plt.plot(np.linspace(0.0, 2.5), np.linspace(0.0, 2.5), color='g')
+    ss_test = sns.relplot(data=df, x='pred', y='true')
+    ss_test = ss_test.map(plt.axline, xy1=(0,0), slope=1, color='darkgrey', linestyle='dashed')
 
     def annotate(data, **kwargs):
         r, _ = stats.pearsonr(data['pred'], data['true'])
         ax = plt.gca()
-        ax.text(0.5, 0.1, 'Pearson correlation r={:.3f}'.format(r),
+        ax.text(0.8, 0.1, 'r={:.3f}'.format(r),
                 transform=ax.transAxes)
         
     ss_test.map_dataframe(annotate)
-    plt.title("Predicted and true steady states in test set \nacross all conditions")
+    # plt.gca().set_aspect('equal')
+    # plt.title("Predicted and true steady states for all\n val set perts")
 
     if file_out:
         ss_test.savefig(file_out)

@@ -7,31 +7,6 @@ from torch.utils.data import Dataset
 from mbpert.odesolver import RK45
 
 
-# A helper to reshape a tensor in Fortran-like order
-# Reference: https://stackoverflow.com/questions/63960352/reshaping-order-in-pytorch-fortran-like-index-ordering
-def reshape_fortran(x, shape):
-    if len(x.shape) > 0:
-        x = x.permute(*reversed(range(len(x.shape))))
-    return x.reshape(*reversed(shape)).permute(*reversed(range(len(shape))))
-
-def glvp(t, x, r, A, eps, p):
-    """Define generalized lotka-volterra dynamic system with perturbations
-       To vectorized over conditions, create a long state vector holding 
-       species abundances at time t across all conditions
-
-       x --- (n_species*n_conds,) Species (dimensionless) absolute abundances 
-                                  under all pert conditions. Formed by contiguous
-                                  blocks of species abundances, where each block
-                                  corresponds to a condition
-       r --- (n_species) Growth rate
-       A --- (n_species, n_species) Species interaction matrix
-       eps --- (n_species,) Species susceptibility to perturbation
-    """
-    x = reshape_fortran(x, p.shape)
-    out = x * (r[:, None] + A @ x + eps[:, None] * p)
-    return reshape_fortran(out, (-1,))
-
-
 # Custom PyTorch module
 
 class MBPert(nn.Module):
@@ -50,8 +25,33 @@ class MBPert(nn.Module):
     # self.A = nn.Parameter(self.A)
 
   def forward(self, x, p):
-    self.solver = RK45(glvp, [0,20], args=(self.r, self.A, self.eps, p))
+    self.solver = RK45(MBPert.glvp, [0,20], args=(self.r, self.A, self.eps, p))
     return self.solver.solve(x)
+
+  @staticmethod
+  def glvp(t, x, r, A, eps, p):
+    """Define generalized lotka-volterra dynamic system with perturbations
+       To vectorized over conditions, create a long state vector holding 
+       species abundances at time t across all conditions
+
+       x --- (n_species*n_conds,) Species (dimensionless) absolute abundances 
+                                  under all pert conditions. Formed by contiguous
+                                  blocks of species abundances, where each block
+                                  corresponds to a condition
+       r --- (n_species) Growth rate
+       A --- (n_species, n_species) Species interaction matrix
+       eps --- (n_species,) Species susceptibility to perturbation
+    """
+    # A helper to reshape a tensor in Fortran-like order
+    # Reference: https://stackoverflow.com/questions/63960352/reshaping-order-in-pytorch-fortran-like-index-ordering
+    def reshape_fortran(x, shape):
+        if len(x.shape) > 0:
+            x = x.permute(*reversed(range(len(x.shape))))
+        return x.reshape(*reversed(shape)).permute(*reversed(range(len(shape))))
+        
+    x = reshape_fortran(x, p.shape)
+    out = x * (r[:, None] + A @ x + eps[:, None] * p)
+    return reshape_fortran(out, (-1,))
 
 # Custom Dataset
 

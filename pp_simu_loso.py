@@ -25,13 +25,17 @@ if __name__ == '__main__':
     np.savetxt(DATA_DIR + "eps.txt", eps)
 
     n_conds = P.shape[1]
-    X_0 = 0.1 * np.ones((n_species, n_conds))  # initial state chosen arbitrary
+    # Initial state log-normal distributed and replicated across all perturbations
+    rng = np.random.default_rng(100)
+    X_0 = np.tile(rng.lognormal(sigma=0.2, size=n_species).reshape(-1,1), n_conds)
 
     # Number of epochs
-    N_EPOCHS = 300
+    N_EPOCHS = 800
 
     loss_all_folds = [] # to store loss over epochs across all folds
     val_pred_all_folds = [] # to store steady state prediction on the withheld set across all folds
+
+    torch.manual_seed(100)
     for i in range(n_species):
         print(f'Training model {i} (leavinig species {i} out)...')
         P_train_foldi = P[:, ~P[i]]
@@ -54,17 +58,17 @@ if __name__ == '__main__':
             # Compute loss (MSE + reg)
             criterion = torch.nn.MSELoss()
             loss = criterion(y_hat, y)
-            loss = loss + reg_loss_interaction(mbpert.A) + \
-                        reg_loss_r(mbpert.r) + \
-                        reg_loss_eps(mbpert.eps)
+            loss = loss + reg_loss_interaction(mbpert.A, reg_lambda=1e-4) + \
+                        reg_loss_r(mbpert.r, reg_lambda=1e-5) + \
+                        reg_loss_eps(mbpert.eps, reg_lambda=1e-5)
             return loss
 
-        optimizer = torch.optim.Adam(mbpert.parameters())
+        optimizer = torch.optim.Adam(mbpert.parameters(), amsgrad=True)
 
         # Model training for Fold i
         mbp = MBP(mbpert, loss_fn, optimizer)
         mbp.set_loaders(trainloader, testloader)
-        mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=i*50)
+        mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=None)
 
         # Record loss history and prediction on the left-out species
         loss_df = pd.DataFrame({'epoch': range(mbp.total_epochs),

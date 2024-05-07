@@ -29,14 +29,16 @@ if __name__ == '__main__':
     np.savetxt(DATA_DIR + "eps.txt", eps)
 
     n_conds = p.shape[1]
-    x0 = 0.1 * np.ones(n_species * n_conds)  # initial state chosen arbitrary
+    # Initial state log-normal distributed and replicated across all perturbations
+    rng = np.random.default_rng(100)
+    x0 = np.tile(rng.lognormal(sigma=0.2, size=n_species), n_conds)
 
     # Train the model `max_comb - 1` times. First on all monospecies, then on
     # mono- and pairwise-species, and so on.
     N = max_comb - 1
 
     # Number of epochs per training
-    N_EPOCHS = 300
+    N_EPOCHS = 800
 
     # Store ODE parameter estimates
     A_est = np.empty((N, n_species, n_species))
@@ -47,6 +49,7 @@ if __name__ == '__main__':
     # validation sets sizes are different
     val_pred = [] 
 
+    torch.manual_seed(100)
     for i in range(N):
         print(f'\nTraining model {i} with up to {i+1} species combinations...')
         split_outputs = mbpert_split_by_cond(x0, X_ss, p, n_conds_lst=n_conds_list, keep_as_train=i+1)
@@ -68,9 +71,9 @@ if __name__ == '__main__':
             # Compute loss (MSE + reg)
             criterion = torch.nn.MSELoss()
             loss = criterion(y_hat, y)
-            loss = loss + reg_loss_interaction(mbpert.A) + \
-                        reg_loss_r(mbpert.r) + \
-                        reg_loss_eps(mbpert.eps)
+            loss = loss + reg_loss_interaction(mbpert.A, reg_lambda=1e-4) + \
+                        reg_loss_r(mbpert.r, reg_lambda=1e-5) + \
+                        reg_loss_eps(mbpert.eps, reg_lambda=1e-5)
             return loss
 
         optimizer = torch.optim.Adam(mbpert.parameters())
@@ -79,8 +82,7 @@ if __name__ == '__main__':
         mbp = MBP(mbpert, loss_fn, optimizer)
         mbp.set_loaders(trainloader, testloader)
         # mbp.set_tensorboard('sim_parallel_pert')
-
-        mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=i*50)
+        mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=None)
         
         A_est[i] = mbp.model.state_dict()['A'].numpy()
         r_est[i] = mbp.model.state_dict()['r'].numpy()

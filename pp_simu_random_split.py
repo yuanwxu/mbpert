@@ -29,23 +29,29 @@ if __name__ == '__main__':
     np.savetxt(DATA_DIR + "eps.txt", eps)
 
     n_conds = sum(n_conds_list)
-    x0 = 0.1 * np.ones(n_species * n_conds)  # initial state chosen arbitrary
+    # Initial state log-normal distributed and replicated across all perturbations
+    rng = np.random.default_rng(100)
+    x0 = np.tile(rng.lognormal(sigma=0.2, size=n_species), n_conds)
 
     # Train the model N times with independent random partitions (70-30 split)
+    # We want to preserve the proportions of k-species perturbations for train
+    # and test sets, so we create a dummy class label vector to stratify by in
+    # train_test_split
     N = 200
+    stratify_by = np.repeat(np.arange(len(n_conds_list)), n_conds_list)
 
     # Number of epochs per training
-    N_EPOCHS = 300
+    N_EPOCHS = 400
 
     # Store ODE parameter estimates
     A_est = np.empty((N, n_species, n_species))
     r_est = np.empty((N, n_species))
     eps_est = np.empty((N, n_species))
 
-    np.random.seed(42)
+    torch.manual_seed(100)
     for i in range(N):
         print(f'\nTraining model {i} with random partition...')
-        split_outputs = mbpert_split(x0, X_ss, p, test_size=0.3)
+        split_outputs = mbpert_split(x0, X_ss, p, test_size=0.3, stratify=stratify_by)
         x0_train, x0_test, x_ss_train, x_ss_test, P_train, P_test = split_outputs
         trainset = MBPertDataset(x0_train, x_ss_train, P_train)
         testset = MBPertDataset(x0_test, x_ss_test, P_test)
@@ -54,16 +60,15 @@ if __name__ == '__main__':
         testloader = DataLoader(testset, batch_size=32)  
 
         # Model configuration
-        n_species = trainset.n_species
         mbpert = MBPert(n_species)
 
         def loss_fn(y_hat, y, mbpert):
             # Compute loss (MSE + reg)
             criterion = torch.nn.MSELoss()
             loss = criterion(y_hat, y)
-            loss = loss + reg_loss_interaction(mbpert.A) + \
-                        reg_loss_r(mbpert.r) + \
-                        reg_loss_eps(mbpert.eps)
+            loss = loss + reg_loss_interaction(mbpert.A, reg_lambda=1e-4) + \
+                        reg_loss_r(mbpert.r, reg_lambda=1e-5) + \
+                        reg_loss_eps(mbpert.eps, reg_lambda=1e-5)
             return loss
 
         optimizer = torch.optim.Adam(mbpert.parameters())
@@ -72,7 +77,6 @@ if __name__ == '__main__':
         mbp = MBP(mbpert, loss_fn, optimizer)
         mbp.set_loaders(trainloader, testloader)
         # mbp.set_tensorboard('sim_parallel_pert')
-
         mbp.train(n_epochs=N_EPOCHS, verbose=False, seed=None)
         
         A_est[i] = mbp.model.state_dict()['A'].numpy()

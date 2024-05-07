@@ -82,6 +82,9 @@ class MBP(object):
             loss = self.loss_fn(yhat, y, self.model)
             # Step 3 - Computes gradients 
             loss.backward()
+
+            # Do gradient clipping
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             # Step 4 - Updates parameters using gradients and the learning rate
             self.optimizer.step()
             self.optimizer.zero_grad()
@@ -166,10 +169,9 @@ class MBP(object):
         # Even when no validation set is present, there is an option to `stop_training_early`
         # by specifying a dictionary with keys `epochs` and `eps`, where
         # for example `stop_training_early["epochs"] = 10` and
-        # `stop_training_early["eps"] = 0.05` means that training will stop if there is no
-        # significant reduction in loss between previous x epoches and previous 2*x epochs
-        # |(redution in loss in prev 10 epochs) / (reduction in loss in prev 20 epochs) - 1| < eps
-
+        # `stop_training_early["eps"] = 0.01` means that training will stop if the loss
+        # reduction in prev 10 epochs is less than 0.01
+        
         # To ensure reproducibility of the training process
         if seed:
             self.set_seed(seed)
@@ -211,13 +213,10 @@ class MBP(object):
             if isinstance(stop_training_early, dict):
                 if (epoch > stop_training_early['epochs']) and\
                      (epoch % stop_training_early['epochs'] == 0):
-                    istart = epoch - 2 * stop_training_early['epochs']
-                    imid = epoch - stop_training_early['epochs']
+                    istart = epoch - stop_training_early['epochs']
                     iend = epoch
                     r1 = max(self.losses[istart:iend]) - min(self.losses[istart:iend])
-                    r2 = max(self.losses[imid:iend]) - min(self.losses[imid:iend])
-                    if (r1 < (1+stop_training_early['eps'])*r2) and\
-                        (r1 > (1-stop_training_early['eps'])*r2):
+                    if r1 < stop_training_early['eps']:
                         break
 
         if self.writer:

@@ -20,11 +20,9 @@ def pert_mat(n_nodes, combos, n_conds_lst=None, use_seed=True):
             "Argument combos and n_conds_lst must have same length, see help(pert_mat)."
         )
 
-    from math import comb
-
     def build_mat(list_conds_gen):
         ncols = sum(n_conds_lst) if n_conds_lst else sum(
-            comb(n_nodes, k) for k in combos)
+            math.comb(n_nodes, k) for k in combos)
         pmat = np.zeros((n_nodes, ncols), dtype=bool)
         for j, cond in enumerate(it.chain(*list_conds_gen)):
             pmat[list(cond), j] = 1
@@ -33,7 +31,7 @@ def pert_mat(n_nodes, combos, n_conds_lst=None, use_seed=True):
     if n_conds_lst:  # random sample n_conds_lst[i] perturbation conditions for each node size k = combos[i]
         lst_conds = []
         for i, k in enumerate(combos):
-            n_total_conds = comb(n_nodes, k)
+            n_total_conds = math.comb(n_nodes, k)
 
             seed = 0 + i if use_seed else None
             rng = np.random.default_rng(seed)
