@@ -94,7 +94,14 @@ class RK45():
     step_accepted = False
     step_rejected = False
 
-    while not step_accepted:
+    max_attempt = 100
+    counter = 0
+    while not step_accepted and counter < max_attempt:
+      counter = counter + 1
+
+      if h < 1e-6:
+        print("ODE solver RK45 step terminated early due to too small step size.")
+        break
       t_new = t + h
 
       if (t_new - self.tf) > 0:
@@ -121,6 +128,9 @@ class RK45():
       else:
           h *= max(MIN_FACTOR, SAFETY * error_norm ** self.error_exponent)
           step_rejected = True
+      
+    if counter >= max_attempt:
+        print("ODE solver RK45 step maximum attemmpt exceeded.")
 
     # Update time, state, derivative and step size
     self.t, self.y, self.f, self.h = t_new, y_new, f_new, h
@@ -137,7 +147,11 @@ class RK45():
     self.K = torch.empty((RK45.n_stages + 1, y.numel()), dtype=y.dtype)
     
     while self.t < self.tf:
-      self._step_impl()
+        self._step_impl()
+
+        if self.h < 1e-6: 
+            print("ODE solver RK45 terminated early due to too small step size. Try lower the learning rate to improve stability.")
+            break
 
     # if self.f.abs().mean().item() > 1e-3:
       # print(f'Mean absolute derivative at t={self.t}: {self.f.abs().mean().item()}')

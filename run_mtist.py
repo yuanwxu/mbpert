@@ -47,14 +47,14 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
     mbpertTS = MBPertTS(n_species, dataset.P)
 
     def loss_fn_ts(y_hat, y, mbpertTS):
-        # Removed the reg terms as they will be included as weight_decay in AdamW
-        # However the function signature was kept the same so we don't need to
-        # change the code in the main mbpert module
+        # Compute loss (MSE + reg)
         criterion = torch.nn.MSELoss()
         loss = criterion(y_hat, y)
+        loss = loss + reg_loss_interaction(mbpertTS.A, reg_lambda=1e-4) + \
+                                reg_loss_r(mbpertTS.r, reg_lambda=1e-5)
         return loss
 
-    optimizer = torch.optim.AdamW(mbpertTS.parameters(), lr=0.01, weight_decay=0.01, amsgrad=True)
+    optimizer = torch.optim.AdamW(mbpertTS.parameters(), lr=0.01, amsgrad=True)
 
     # Model training
     N_EPOCHS = 600 # this will be max number of epochs if `stop_training_early` is set
@@ -62,7 +62,7 @@ def infer_from_did_mbpert(did, set_seed=True, save_model=False):
     mbp = MBP(mbpertTS, loss_fn_ts, optimizer, ts_mode=True)
     mbp.set_loaders(dataloader)
     mbp.train(n_epochs=N_EPOCHS, verbose=True, seed=did*50+1 if set_seed else None,\
-              stop_training_early={'epochs':10, 'eps':0.005}) 
+              stop_training_early={'epochs':15, 'eps':0.005}) 
     
     if mbp.total_epochs < N_EPOCHS:
         print(f"Model for MTIST dataset {did} stopped early at epoch {mbp.total_epochs}\n"
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     #par = list(range(0, num_datasets, int(num_datasets/216)))
     par.append(num_datasets)
 
-    N_RUNS = 100 # number of runs per dataset 
+    N_RUNS = 50 # number of runs per dataset 
     torch.manual_seed(100)
     for did in range(*par[(TASK_ID-1):(TASK_ID+1)]):  # loop over partition defined by current TASK_ID
         gt = gts[did].replace('gt', 'aij')

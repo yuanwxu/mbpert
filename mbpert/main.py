@@ -3,9 +3,8 @@ import pandas as pd
 import datetime
 import torch
 import matplotlib.pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
-plt.style.use('fivethirtyeight')
 
 class MBP(object):
     def __init__(self, model, loss_fn, optimizer, ts_mode=False):
@@ -54,10 +53,10 @@ class MBP(object):
         self.train_loader = train_loader
         self.val_loader = val_loader
 
-    def set_tensorboard(self, name, folder='runs'):
-        # This method allows the user to define a SummaryWriter to interface with TensorBoard
-        suffix = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        self.writer = SummaryWriter(f'{folder}/{name}_{suffix}')
+    # def set_tensorboard(self, name, folder='runs'):
+    #     # This method allows the user to define a SummaryWriter to interface with TensorBoard
+    #     suffix = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    #     self.writer = SummaryWriter(f'{folder}/{name}_{suffix}')
 
     def _make_train_step_fn(self):
         # This method does not need ARGS... it can refer to
