@@ -1,0 +1,16 @@
+Clostridium-hiranonis
+Clostridium-difficile
+Proteus-mirabilis
+Clostridium-scindens
+Ruminococcus-obeum
+Clostridium-ramosum
+Bacteroides-ovatus
+Akkermansia-muciniphila
+Parabacteroides-distasonis
+Bacteroides-fragilis
+Bacteroides-vulgatus
+Enterococcus-faecalis
+Klebsiella-oxytoca
+Lactobacillus-reuteri
+Roseburia-hominis
+Escherichia-coli
